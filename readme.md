@@ -1,8 +1,6 @@
-<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_banner.jpg" />
-
 # CKFLIGHT H7 Advanced Flight Controller Firmware (Light Version) as a STM32CubeIDE Project
 
-<img width="2027" height="1139" alt="Image" src="https://github.com/user-attachments/assets/83101031-c83c-4fed-b8a0-d6efd2ead19e" />
+<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_banner.jpg" />
 
 I have decided to upload the lighter version of my flight controller firmware: High-performance bare-metal 16K loop time capable STM32H7 flight controller firmware close to betaflight in flight performance developed by me for educational, hobbyist, and academic use.
 
@@ -89,14 +87,6 @@ The firmware performance and architecture are designed to be conceptually compar
 # Real Flight Video
 
 https://github.com/user-attachments/assets/4c7df17b-40bc-41f8-9e52-42024572642d
-
----
-
-# Terminal Interface
-
-https://github.com/user-attachments/assets/535e39e9-0e48-4be0-abaf-20bba0b0e894
-
-<img width="1526" height="844" alt="Image" src="https://github.com/user-attachments/assets/935bc549-ba67-491f-a17a-4a270db213b6" />
 
 ---
 
