@@ -6,7 +6,7 @@ I have decided to upload the lighter version of my flight controller firmware: H
 
 STM32CubeIDE is a great environment for easy debugging without getting into unnecessary details. 
 
-Commercially available flight controller boards can be used with this firmware: Check Boad Porting and Configuration Guide below.
+Commercially available flight controller boards can be used with this firmware: Check Board Porting and Configuration Guide below.
 
 CKFLIGHT H7 is designed as a simplified and readable version of the full CKFLIGHT firmware architecture while preserving modern flight-controller concepts including high-rate control loops, sensor fusion, digital ESC protocols, SD logging, USB communication, advanced PID algorithms, and real-time embedded control systems.
 
@@ -33,6 +33,7 @@ The architecture focuses on exposing low-level implementation details rather tha
   - CRSF
 - USB communication interface
 - MSP communication support
+- CKFLIGHT Configurator support (USB GUI and terminal configuration)
 - SD card flight data logging
 - GPS support
 - Barometer support
@@ -93,6 +94,125 @@ https://github.com/user-attachments/assets/4c7df17b-40bc-41f8-9e52-42024572642d
 https://github.com/user-attachments/assets/535e39e9-0e48-4be0-abaf-20bba0b0e894
 
 <img width="1526" height="844" alt="Image" src="https://github.com/user-attachments/assets/935bc549-ba67-491f-a17a-4a270db213b6" />
+
+---
+
+# CKFLIGHT Configurator
+
+CKFLIGHT Configurator is the desktop companion application for CKFLIGHT firmware. It connects to the flight controller over USB (CDC virtual COM port) and is used to read default parameters, tune the PID profile and save parameters to the flight controller's internal flash.
+
+The firmware supports two configuration modes on the same USB port:
+
+| Mode | Handshake (6 bytes) | Used by |
+|------|---------------------|---------|
+| GUI configuration | `CK<$_G` | CKFLIGHT Configurator |
+| Terminal configuration | `CK<$_T` | Any serial terminal (menu driven) |
+
+When a valid handshake is received the buzzer is disabled and the firmware enters the selected configuration mode.
+
+> **Safety:** Configuration mode runs a blocking loop on the flight controller, so the flight loop does not run while configuring. Always connect with the quad disarmed and props removed.
+
+<!--
+## Themes
+
+TODO: fill in the current configurator themes, then remove this comment wrapper.
+
+| Theme | Style | Notes |
+|-------|-------|-------|
+| ...   | Dark / Light | ... |
+
+<img width="..." height="..." alt="CKFLIGHT Configurator" src="..." />
+-->
+
+## GUI Packet Protocol
+
+All GUI packets use the same frame structure:
+
+```text
+'C' 'K' | TYPE (1 byte) | LEN (1 byte) | PAYLOAD (LEN bytes) | CRC (1 byte)
+```
+
+`CRC` is the sum of all preceding bytes (header, type, length and payload) modulo 256.
+
+| Type | Name | Direction | Description |
+|------|------|-----------|-------------|
+| `0x01` | `GUI_PID_DATA` | GUI → FC | PID profile parameters (21-byte payload), saved to flash |
+| `0x02` | `GUI_CONFIG_DATA` | GUI → FC | General configuration data |
+| `0x03` | `GUI_RC_DATA` | GUI → FC | RC configuration data |
+| `0x04` | `GUI_SETTINGS_DATA` | GUI → FC | Firmware settings data |
+| `0x05` | `GUI_MODES_DATA` | GUI → FC | Flight modes and switch ranges (acro, level, GPS rescue, ...) |
+| `0x06` | `GUI_FC_RESPONSE_CMD` | FC → GUI | Response packet, payload `0xFF` = parameters saved |
+| `0x07` | `GUI_CONFIG_DONE_CMD` | GUI → FC | Configuration finished, exits GUI mode |
+| `0x08` | `GUI_GET_PID_DEFAULTS_CMD` | GUI ↔ FC | Request / return default PID profile parameters |
+| `0x09` | `GUI_GET_RC_DEFAULTS_CMD` | GUI ↔ FC | Request / return default RC parameters |
+
+In this light version, PID profile packets are written to flash; config, RC, settings and modes packets are acknowledged with the saved response and are reserved for the full CKFLIGHT firmware.
+
+### PID Profile Parameters (`0x01` / `0x08`)
+
+```text
+TPA             -> tpa_breakpoint (16-bit), tpa_rate, tpa_mode
+Anti Gravity    -> anti_gravity_gain, anti_gravity_p_gain, anti_gravity_cutoff_hz
+Simplified Tune -> simplified_pids_mode, simplified_master_multiplier,
+                   simplified_pi_gain, simplified_i_gain, simplified_d_gain,
+                   simplified_d_max_gain, simplified_feedforward_gain,
+                   simplified_roll_pitch_ratio, simplified_pitch_pi_gain
+Feedforward     -> feedforward_averaging, feedforward_max_rate_limit,
+                   feedforward_smooth_factor, feedforward_jitter_factor,
+                   feedforward_boost
+```
+
+### RC Parameters (`0x09`)
+
+```text
+Deadband        -> deadband, yaw_deadband, midrc (16-bit)
+Rate Limits     -> rate_limit[ROLL, PITCH, YAW] (16-bit each)
+Rates           -> rcRates[RPY], rcExpo[RPY], rates[RPY]
+RC Smoothing    -> rc_smoothing_mode, rc_smoothing_setpoint_cutoff,
+                   rc_smoothing_feedforward_cutoff, rc_smoothing_throttle_cutoff,
+                   rc_smoothing_debug_axis, rc_smoothing_auto_factor_rpy,
+                   rc_smoothing_auto_factor_throttle
+```
+
+## Terminal Configuration Menu
+
+After sending `CK<$_T`, the flight controller prints a configuration menu:
+
+```text
+1. PID Configuration
+   1a.Roll  1b.Pitch  1c.Yaw  1d.Althold  1e.Velocity  1f.Navigation
+   1g.Level  1h.Horizon  1i.Dmin  1j.FeedForward  1k.TPA_Breakpoint  1l.TPA_Rate
+2. RC Configuration
+   2a.RC_Idle_Drift  2b.RC_Idle_Trim  2c.Yaw_Deadband
+3. Accelerometer Calibration
+4. RC Rates Configuration
+   4a.RC_Rate  4b.RC_Expo  4c.Rates
+5. Exit
+```
+
+Values are entered as comma-terminated lists:
+
+```text
+1g70,10,10,      -> Level P, I, D = 70, 10, 10
+1l40,            -> TPA rate = 40
+4a120,120,120,   -> RC rate roll, pitch, yaw = 120
+```
+
+Selecting `5` exits configuration and restarts the flight controller.
+
+## Parameter Storage
+
+Parameters are stored in the MCU's internal flash (`Core/Inc/COMMUNICATION/CK_CONFIGURATION.h`):
+
+| Block | Size |
+|-------|------|
+| Configuration ID (`CK<$`) | 20 bytes |
+| PID parameters | 50 bytes |
+| Accelerometer calibration | 6 bytes |
+| RC parameters | 30 bytes |
+| SD logging parameters | 10 bytes |
+
+On first boot after an erase, `CK_CONFIGURATION_Init()` writes the default parameters once and sets the configuration ID.
 
 ---
 
@@ -365,7 +485,7 @@ Core/
 FLIGHT/         -> PID, mixer, RC processing, navigation, failsafe
 SENSORS/        -> IMU, barometer, magnetometer drivers
 DRIVERS/        -> SPI, UART, I2C, ADC, DMA, GPIO
-COMMUNICATION/  -> MSP, USB CDC, telemetry, configuration
+COMMUNICATION/  -> MSP, USB CDC, telemetry, configurator protocol
 OSD/            -> On-screen display
 FLASH/          -> Flash memory handling
 MOTION/         -> Motion estimation and filtering
@@ -452,4 +572,4 @@ https://www.gnu.org/licenses/gpl-3.0.html
 Cenk Keskin
 
 GitHub:
-https://github.com/ckflight/CKFLIGHT_H7
+https://github.com/ckflight/CKFLIGHT-H7
