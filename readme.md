@@ -1,3 +1,5 @@
+<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_banner.jpg" />
+
 # CKFLIGHT H7 Advanced Flight Controller Firmware (Light Version) as a STM32CubeIDE Project
 
 <img width="2027" height="1139" alt="Image" src="https://github.com/user-attachments/assets/83101031-c83c-4fed-b8a0-d6efd2ead19e" />
@@ -33,7 +35,8 @@ The architecture focuses on exposing low-level implementation details rather tha
   - CRSF
 - USB communication interface
 - MSP communication support
-- CKFLIGHT Configurator support (USB GUI and terminal configuration)
+- USB GUI and terminal configuration interface
+- Companion desktop app: [CKFLIGHT Configurator](#ckflight-configurator)
 - SD card flight data logging
 - GPS support
 - Barometer support
@@ -99,32 +102,103 @@ https://github.com/user-attachments/assets/535e39e9-0e48-4be0-abaf-20bba0b0e894
 
 # CKFLIGHT Configurator
 
-CKFLIGHT Configurator is the desktop companion application for CKFLIGHT firmware. It connects to the flight controller over USB (CDC virtual COM port) and is used to read default parameters, tune the PID profile and save parameters to the flight controller's internal flash.
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/configurator_welcome.jpg" />
 
-The firmware supports two configuration modes on the same USB port:
+CKFLIGHT Configurator is a single desktop app for setup, tuning, mission planning, simulation, blackbox analysis and firmware programming, with a built-in virtual flight controller.
+
+| | |
+|---|---|
+| Platforms | Linux, Windows |
+| Languages | English, Türkçe |
+| Targets | STM32 F4, H7, N6 |
+| Virtual FC | Built-in SITL, selectable as **Virtual FC (SITL)** in the port list |
+| Protocol | CKLink |
+
+> The screenshots show the Configurator running against its built-in Virtual FC (SITL · H7 · FW 5.0.0) over CKLink. The light firmware in this repository has its own simpler USB configuration interface, described in [USB Configuration Interface (Light Firmware)](#usb-configuration-interface-light-firmware).
+
+## Pages
+
+| Group | Page | Purpose |
+|-------|------|---------|
+| FC | Setup | FC connection, live status and tools |
+| FC | PID Tuning | PID table, simplified tuning, feedforward, TPA and anti gravity |
+| FC | Rate & RC | Rates and RC settings |
+| FC | Modes | Flight modes |
+| FC | Failsafe | Failsafe settings |
+| FC | GPS & Mission | GPS and mission planning |
+| FC | Simulation | Simulation with the built-in Virtual FC |
+| FC | Filters | Gyro low-pass and notch filters with frequency response |
+| FC | All Parameters | Full parameter list |
+| FC | Terminal | FC terminal |
+| FC | Programming | Firmware programming |
+| Blackbox | SD Card & Logs | Open LOG files from the SD card |
+| Blackbox | Log Analysis | Spectrum, spectrogram, step response and frequency response |
+| Blackbox | Auto Tune | PID and filter proposals from flight logs |
+
+## Getting Started
+
+1. Plug the FC into the computer with a USB cable.
+2. Pick the port at the top right (STM32 / ttyACM) and press **Connect**.
+3. Changes apply to the FC instantly; press **Save** to make them permanent.
+
+No hardware at hand? Choose **Try the Virtual FC** or **Try a demo log** on the Setup page.
+
+## Tuning
+
+<img width="100%" alt="CKFLIGHT Configurator tuning" src="docs/images/configurator_tuning.jpg" />
+
+Live 3D attitude and telemetry, PID / rate / filter tuning with instant apply, modes, failsafe and motor tools over the CKLink protocol. Highlights: live 3D + telemetry, self-describing parameters, filter frequency response and arm-guard safety.
+
+- **PID table:** P, I, D, FF and Dmax for roll, pitch and yaw. Typing a value into the table turns simplified tuning off.
+- **Simplified tuning (Betaflight method):** sliders scale the default PIDs: D gain, P & I gain, FF gain, D max, I gain, Pitch:Roll D, Pitch P·I·FF and master multiplier. Applied axes are selectable, with **Auto tune** and **Reset sliders** buttons.
+- **Feedforward:** jitter reduction, smoothness, boost, max rate limit and averaging.
+- **TPA:** breakpoint, rate and mode, reducing gain as throttle rises.
+- **Anti gravity:** gain, P gain and cutoff frequency.
+- **Filters:** gyro low-pass and notch filters drawn as a frequency response over the unfiltered gyro noise of an open log, with filter delay, attenuation at 100 Hz and gyro sampling rate.
+- **Arm-guard safety:** while the FC is armed the header shows **ARMED — settings locked** and settings are locked.
+
+## Blackbox Log Analysis
+
+<img width="100%" alt="CKFLIGHT blackbox log analysis" src="docs/images/configurator_log_analysis.jpg" />
+
+Spectrum, spectrogram, step response (Welch H1 with confidence bands) and closed-loop frequency response with gain / phase margins.
+
+- Open a LOG file from the **SD Card & Logs** page or by drag-and-drop.
+- Tabs: Summary, Anomalies, Time, Spectrum, Spectrogram, Step Response, Frequency Response, Statistics.
+- Searchable channel tree for gyro, setpoint, RC, throttle and motor data.
+- Step response options: method (Spectral H1), window, filtered gyro, split and airborne-only segments.
+- Export with **Save .bin**, **Save PNG** and **Export CSV**.
+
+## AutoTune from Flight Logs
+
+<img width="100%" alt="CKFLIGHT AutoTune" src="docs/images/configurator_autotune.jpg" />
+
+AutoTune identifies the plant (gain, time constant, delay) and noise from a blackbox log, then co-optimizes PID, filters, feedforward and RC smoothing, round by round.
+
+- **Tune sessions** per drone, in multiple rounds: fly a 2–3 min test flight, load the log, apply the proposal, then fly the same routine again and load the new log.
+- **Log checks** before tuning: flight time, a calm hover of 15 s or more for noise measurement, roll and pitch flips in both directions, yaw 360° turns and per-axis model confidence.
+- **Flight style:** Racing or Freestyle.
+- **Proposal:** every PID and filter change is listed with its current value, proposed value and reason; checked items are applied.
+- **Metrics:** model confidence, roll/pitch crossover bandwidth, overshoot per axis, motor noise against its budget and measured RC link rate.
+- **Results:** resulting PIDs computed with the firmware formula, and the resulting filter chain with gyro filter delay.
+- Tabs: Proposal, Step response, Filters & noise, Model, Insights & test flight. Results can be saved as a profile.
+
+## USB Configuration Interface (Light Firmware)
+
+The light firmware in this repository supports two configuration modes on the same USB port:
 
 | Mode | Handshake (6 bytes) | Used by |
 |------|---------------------|---------|
-| GUI configuration | `CK<$_G` | CKFLIGHT Configurator |
+| GUI configuration | `CK<$_G` | GUI client |
 | Terminal configuration | `CK<$_T` | Any serial terminal (menu driven) |
 
 When a valid handshake is received the buzzer is disabled and the firmware enters the selected configuration mode.
 
 > **Safety:** Configuration mode runs a blocking loop on the flight controller, so the flight loop does not run while configuring. Always connect with the quad disarmed and props removed.
 
-<!--
-## Themes
+<img width="100%" alt="USB configuration interface" src="docs/images/light_fw_usb_flow.png" />
 
-TODO: fill in the current configurator themes, then remove this comment wrapper.
-
-| Theme | Style | Notes |
-|-------|-------|-------|
-| ...   | Dark / Light | ... |
-
-<img width="..." height="..." alt="CKFLIGHT Configurator" src="..." />
--->
-
-## GUI Packet Protocol
+### GUI Packet Protocol
 
 All GUI packets use the same frame structure:
 
@@ -132,7 +206,9 @@ All GUI packets use the same frame structure:
 'C' 'K' | TYPE (1 byte) | LEN (1 byte) | PAYLOAD (LEN bytes) | CRC (1 byte)
 ```
 
-`CRC` is the sum of all preceding bytes (header, type, length and payload) modulo 256.
+`CRC` is the sum of all preceding bytes (header, type, length and payload) modulo 256. Responses from the flight controller are sent as ASCII decimal values separated by `/`.
+
+<img width="100%" alt="GUI packet frame" src="docs/images/light_fw_packet_frame.png" />
 
 | Type | Name | Direction | Description |
 |------|------|-----------|-------------|
@@ -148,7 +224,7 @@ All GUI packets use the same frame structure:
 
 In this light version, PID profile packets are written to flash; config, RC, settings and modes packets are acknowledged with the saved response and are reserved for the full CKFLIGHT firmware.
 
-### PID Profile Parameters (`0x01` / `0x08`)
+#### PID Profile Parameters (`0x01` / `0x08`)
 
 ```text
 TPA             -> tpa_breakpoint (16-bit), tpa_rate, tpa_mode
@@ -162,7 +238,7 @@ Feedforward     -> feedforward_averaging, feedforward_max_rate_limit,
                    feedforward_boost
 ```
 
-### RC Parameters (`0x09`)
+#### RC Parameters (`0x09`)
 
 ```text
 Deadband        -> deadband, yaw_deadband, midrc (16-bit)
@@ -174,7 +250,7 @@ RC Smoothing    -> rc_smoothing_mode, rc_smoothing_setpoint_cutoff,
                    rc_smoothing_auto_factor_throttle
 ```
 
-## Terminal Configuration Menu
+### Terminal Configuration Menu
 
 After sending `CK<$_T`, the flight controller prints a configuration menu:
 
@@ -200,7 +276,7 @@ Values are entered as comma-terminated lists:
 
 Selecting `5` exits configuration and restarts the flight controller.
 
-## Parameter Storage
+### Parameter Storage
 
 Parameters are stored in the MCU's internal flash (`Core/Inc/COMMUNICATION/CK_CONFIGURATION.h`):
 
@@ -264,6 +340,8 @@ Supported sensors currently present in firmware:
 ## SPI Flash and SPI/SDIO SD Card
 
 Use this log analysis tool i have written for flight log analysis: https://github.com/ckflight/Flight_Log_Tools
+
+Blackbox logs can also be analyzed in [CKFLIGHT Configurator](#blackbox-log-analysis).
 
 <img width="1440" height="900" alt="Image" src="https://github.com/user-attachments/assets/c2dae7aa-cf1c-408a-8b66-1965b458bf14" />
 <img width="1440" height="900" alt="Image" src="https://github.com/user-attachments/assets/2bfab410-94e1-4786-b5f5-ae395c77af66" />
@@ -568,6 +646,8 @@ https://www.gnu.org/licenses/gpl-3.0.html
 ---
 
 # Author
+
+<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_overview.jpg" />
 
 Cenk Keskin
 
