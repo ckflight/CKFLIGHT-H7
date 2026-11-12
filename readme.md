@@ -107,11 +107,11 @@ CKFLIGHT Configurator is a single desktop app for setup, tuning, mission plannin
 
 > The screenshots show the Configurator running against its built-in Virtual FC (SITL · H7 · FW 5.0.0) over CKLink. The light firmware in this repository has its own simpler USB configuration interface, described in [USB Configuration Interface (Light Firmware)](#usb-configuration-interface-light-firmware).
 
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/20_architecture.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/21_cklink.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/22_sitl.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/23_autotune.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/24_safety.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/architecture.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/cklink.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/sitl.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/autotune.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/safety.jpg" />
 
 
 ## Pages
