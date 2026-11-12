@@ -1,6 +1,7 @@
 # CKFLIGHT H7 Advanced Flight Controller Firmware (Light Version) as a STM32CubeIDE Project
 
 <img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_banner.jpg" />
+<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_overview.jpg" />
 
 I have decided to upload the lighter version of my flight controller firmware: High-performance bare-metal 16K loop time capable STM32H7 flight controller firmware close to betaflight in flight performance developed by me for educational, hobbyist, and academic use.
 
@@ -105,6 +106,13 @@ CKFLIGHT Configurator is a single desktop app for setup, tuning, mission plannin
 | Protocol | CKLink |
 
 > The screenshots show the Configurator running against its built-in Virtual FC (SITL · H7 · FW 5.0.0) over CKLink. The light firmware in this repository has its own simpler USB configuration interface, described in [USB Configuration Interface (Light Firmware)](#usb-configuration-interface-light-firmware).
+
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/20_architecture.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/21_cklink.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/22_sitl.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/23_autotune.jpg" />
+<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/24_safety.jpg" />
+
 
 ## Pages
 
@@ -326,17 +334,6 @@ Supported sensors currently present in firmware:
 - GPS_UBLOX7,
 - GPS_UBLOX8,
 - M10 Series
-
-## SPI Flash and SPI/SDIO SD Card
-
-Use this log analysis tool i have written for flight log analysis: https://github.com/ckflight/Flight_Log_Tools
-
-Blackbox logs can also be analyzed in [CKFLIGHT Configurator](#blackbox-log-analysis).
-
-<img width="1440" height="900" alt="Image" src="https://github.com/user-attachments/assets/c2dae7aa-cf1c-408a-8b66-1965b458bf14" />
-<img width="1440" height="900" alt="Image" src="https://github.com/user-attachments/assets/2bfab410-94e1-4786-b5f5-ae395c77af66" />
-<img width="1440" height="900" alt="Image" src="https://github.com/user-attachments/assets/65a67220-2bfc-44e3-8488-375f693efad6" />
-
 ---
 
 # Board Porting and Configuration Guide
@@ -636,8 +633,6 @@ https://www.gnu.org/licenses/gpl-3.0.html
 ---
 
 # Author
-
-<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_overview.jpg" />
 
 Cenk Keskin
 
