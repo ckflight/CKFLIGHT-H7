@@ -1,6 +1,5 @@
 # CKFLIGHT H7 Advanced Flight Controller Firmware (Light Version) as a STM32CubeIDE Project
 
-<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_banner.jpg" />
 <img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_overview.jpg" />
 
 I have decided to upload the lighter version of my flight controller firmware: High-performance bare-metal 16K loop time capable STM32H7 flight controller firmware close to betaflight in flight performance developed by me for educational, hobbyist, and academic use.
@@ -106,13 +105,6 @@ CKFLIGHT Configurator is a single desktop app for setup, tuning, mission plannin
 | Protocol | CKLink |
 
 > The screenshots show the Configurator running against its built-in Virtual FC (SITL · H7 · FW 5.0.0) over CKLink. The light firmware in this repository has its own simpler USB configuration interface, described in [USB Configuration Interface (Light Firmware)](#usb-configuration-interface-light-firmware).
-
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/architecture.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/cklink.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/sitl.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/autotune.jpg" />
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/safety.jpg" />
-
 
 ## Pages
 
