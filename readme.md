@@ -1,632 +1,543 @@
-# CKFLIGHT H7 Advanced Flight Controller Firmware (Light Version) as a STM32CubeIDE Project
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/banner.png">
+    <img src="docs/images/banner-anim.webp" alt="CKFLIGHT Configurator intro: the eagle beating its wings" width="100%">
+  </picture>
+</p>
 
-<img width="100%" alt="CKFLIGHT" src="docs/images/ckflight_overview.jpg" />
+<h3 align="center">Flight controller firmware, hardware and tools, built from the registers up.<br>One STM32 codebase, its own desktop Configurator, and a simulator that flies the real firmware.</h3>
 
-I have decided to upload the lighter version of my flight controller firmware: High-performance bare-metal 16K loop time capable STM32H7 flight controller firmware close to betaflight in flight performance developed by me for educational, hobbyist, and academic use.
+<p align="center">
+  <img src="https://img.shields.io/badge/firmware-5.0.0-22d3ee?style=for-the-badge" alt="Firmware 5.0.0">
+  <img src="https://img.shields.io/badge/STM32-F4%20%7C%20H7%20%7C%20N6-03234B?style=for-the-badge&logo=stmicroelectronics&logoColor=white" alt="STM32 F4, H7, N6">
+  <img src="https://img.shields.io/badge/loop-8%20kHz-f97316?style=for-the-badge" alt="8 kHz loop">
+  <img src="https://img.shields.io/badge/ESC-DShot600-a855f7?style=for-the-badge" alt="DShot600">
+  <img src="https://img.shields.io/badge/C-bare--metal-00599C?style=for-the-badge&logo=c&logoColor=white" alt="C, bare-metal">
+  <img src="https://img.shields.io/badge/CMake-Ninja-064F8C?style=for-the-badge&logo=cmake&logoColor=white" alt="CMake and Ninja">
+  <img src="https://img.shields.io/badge/Configurator-PySide6-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="Configurator in PySide6">
+</p>
 
-STM32CubeIDE is a great environment for easy debugging without getting into unnecessary details. 
+> [!NOTE]
+> **This repository is a light, sample version of CKFLIGHT.**
+> The STM32 firmware here is a much simpler version of the full CKFLIGHT firmware, shared as an example. The features described below belong to the full CKFLIGHT platform, and only part of them are included in this repository.
 
-Commercially available flight controller boards can be used with this firmware: Check Board Porting and Configuration Guide below.
+<p align="center">
+  <a href="#-highlights">Highlights</a> •
+  <a href="#-safety-first">Safety</a> •
+  <a href="#-control-loop">Control loop</a> •
+  <a href="#-configurator">Configurator</a> •
+  <a href="#-autotune">AutoTune</a> •
+  <a href="#-blackbox">Blackbox</a> •
+  <a href="#-simulator">Simulator</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-supported-hardware">Hardware</a> •
+  <a href="#-getting-started">Getting started</a>
+</p>
 
-CKFLIGHT H7 is designed as a simplified and readable version of the full CKFLIGHT firmware architecture while preserving modern flight-controller concepts including high-rate control loops, sensor fusion, digital ESC protocols, SD logging, USB communication, advanced PID algorithms, and real-time embedded control systems.
-
-The firmware targets STM32H743-based flight controllers and is implemented using STM32CubeIDE without an RTOS.
-
-The project is intended to provide both:
-
-- A real usable flight-controller firmware
-- A readable educational embedded systems reference
-
-The architecture focuses on exposing low-level implementation details rather than hiding functionality behind large abstraction layers.
-
----
-
-# Features
-
-- Bare-metal STM32H743 firmware architecture
-- High-rate real-time flight control loops
-- Advanced PID controller implementation
-- IMU sensor fusion and attitude estimation
-- DSHOT ESC protocol support
-- RC receiver protocols
-  - SBUS
-  - CRSF
-- USB communication interface
-- MSP communication support
-- USB GUI and terminal configuration interface
-- Companion desktop app: [CKFLIGHT Configurator](#ckflight-configurator)
-- SD card flight data logging
-- GPS support
-- Barometer support
-- Magnetometer support
-- OSD support
-- SmartAudio VTX control
-- DMA-based peripheral handling
-- SPI / UART / I2C driver stack
-- Blackbox-style logging infrastructure
-- Runtime telemetry and configuration systems
-- Modular firmware structure for learning and development
-- STM32CubeIDE project structure
-- Real-time fault detection and debugging infrastructure
-
----
-
-# Flight Control Firmware Details
-
-The firmware contains a complete modern flight-control stack including:
-
-- Real-time PID control system
-- Attitude estimation and sensor fusion
-- Gyroscope and accelerometer filtering
-- RC input processing
-- Motor mixer implementation
-- DSHOT motor output generation
-- Failsafe handling
-- Arming and safety logic
-- Navigation and altitude control infrastructure
-- GPS integration
-- Blackbox-style SD card logging
-- USB telemetry and configuration interface
-- Runtime communication systems
-- Fault detection and debugging infrastructure
-
-The control architecture is designed for:
-
-- Low latency
-- High loop-rate operation
-- Deterministic timing
-- Minimal software overhead
-- Direct hardware-level control
-
-The project focuses on readable implementation of real flight-controller concepts rather than excessive abstraction layers.
-
-The firmware performance and architecture are designed to be conceptually comparable to modern high-performance open-source flight-controller firmware while remaining easier to study and modify.
-
----
-
-# Real Flight Video
+## 🎥 Real flight
 
 https://github.com/user-attachments/assets/4c7df17b-40bc-41f8-9e52-42024572642d
 
+## 📊 At a glance
+
+<table>
+<tr>
+<td align="center" width="16%"><h2>3</h2><sub>STM32 families<br>F4 · H7 · N6</sub></td>
+<td align="center" width="16%"><h2>8 kHz</h2><sub>gyro → PID → DShot<br>on H7 and N6</sub></td>
+<td align="center" width="16%"><h2>141</h2><sub>live parameters<br>self-described over USB</sub></td>
+<td align="center" width="16%"><h2>3</h2><sub>independent motor<br>safety layers</sub></td>
+<td align="center" width="16%"><h2>20</h2><sub>simulator<br>scenarios</sub></td>
+<td align="center" width="16%"><h2>1</h2><sub>codebase for every<br>board and the SITL</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/01_ckflight.jpg" alt="CKFLIGHT platform overview" width="100%">
+</p>
+
+## ✨ Highlights
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Flight control
+- Bare-metal on F4 and H7, highest-priority ThreadX thread on N6
+- One codebase for STM32F4, STM32H7 and STM32N6
+- **8 kHz** gyro, PID and DShot on H7 and N6, **4 kHz** on `CKFLIGHTF4_V4`
+- PID with feedforward, TPA, anti-gravity, I-term relax, D-max and simplified tuning
+- Gyro low-pass, two notch filters and D-term low-pass filters
+- Mahony attitude estimation at 500 Hz
+- Betaflight axis and sign conventions
+- DShot600 and PWM ESC output, BLHeli passthrough
+
+</td>
+<td width="50%" valign="top">
+
+### Safety
+- DShot sent by the flight loop itself, in sync with the mixer
+- Output guard stops the motors if the loop hangs
+- Every fault handler sends STOP frames without needing interrupts
+- STOP before rebooting
+- Arming only on a switch edge with throttle low
+- Connecting the Configurator disarms an armed FC and blocks arming
+- No autonomy unless the pilot selects it with a switch
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Autonomy
+- Altitude hold and position hold
+- Waypoint missions, return-to-home and automatic landing
+- Delay-compensated estimator fusing accelerometer, GPS and barometer
+- Link-loss failsafe: drop, land or return home
+- Battery failsafe: warn, land or return home
+- Dead-reckoning home when GPS is lost
+- Capability tiers: the firmware only offers what the enabled sensors can support
+
+> Autonomous modes are verified in simulation. Field testing is in progress.
+
+</td>
+<td width="50%" valign="top">
+
+### Tooling, logging, connectivity
+- Desktop Configurator with live telemetry and a 3D model
+- CKLink protocol with a self-describing parameter table
+- Blackbox on SD card or SPI flash, analysis built into the app
+- AutoTune from flight logs
+- ST-LINK, USB DFU and STM32N6 external-flash programming from the app
+- CRSF and SBUS receivers, GPS, barometer, magnetometer
+- OSD, SmartAudio VTX control, RGB LED strip, USB and MSP
+
+</td>
+</tr>
+</table>
+
 ---
 
-# CKFLIGHT Configurator
+## 🛡 Safety first
 
-<img width="100%" alt="CKFLIGHT Configurator" src="docs/images/configurator_welcome.jpg" />
+A flight controller drives propellers that can cause serious injury, so the motor output is built so that **the motors never keep spinning when the firmware is no longer in control**.
 
-CKFLIGHT Configurator is a single desktop app for setup, tuning, mission planning, simulation, blackbox analysis and firmware programming, with a built-in virtual flight controller.
+<p align="center">
+  <img src="docs/images/motor-safety.svg" alt="Motor output safety: synchronous DShot, output guard, emergency stop and ESC signal loss" width="100%">
+</p>
 
-| | |
+### How the motor output works
+
+DShot frames are sent **only by the flight loop**, right after the mixer, the same way Betaflight does it. There is no free-running timer that keeps repeating the last throttle value. This gives a fixed mixer-to-motor delay with no phase drift, and DMA buffers are never rewritten while a frame is on the wire.
+
+If the loop stops, three independent layers take over:
+
+| Layer | Covers | What it does | Response time |
+|---|---|---|---|
+| **1 · Output guard** | The firmware hangs but does not crash: stuck `while` loop, unresponsive sensor, blocked thread | TIM7 interrupt at priority 0 counts the time since the last frame. It uses its own counter, not SysTick, so it still works when SysTick is blocked. It sends STOP and latches: the FC disarms, and the arm switch must be cycled. | 250 ms |
+| **2 · Emergency stop** | CPU faults and every dead-end handler: HardFault, MemManage, BusFault, UsageFault, NMI, SecureFault (N6), unhandled IRQ, `abort`, and before rebooting | Sends 10 STOP frames by polling the hardware directly (interrupts are not needed), then holds the signal lines low | Immediate |
+| **3 · ESC signal loss** | A hang inside a priority-0 interrupt, or a fault inside the fault handler | Because frames only come from the loop, the ESC sees silence and stops by itself | ESC firmware, e.g. Bluejay ~160 ms, AM32 500 ms |
+
+The guard timeout was chosen against real ESC firmware: it acts after Bluejay already would, so it never cuts motors that Bluejay would have kept, and before AM32, so stopping no longer depends on the ESC's settings. Disarmed pauses, such as saving settings to flash, only send STOP and never trip the latch.
+
+The firmware reports guard trips and skipped frames on the terminal health line (`x`). In normal flight that field never appears.
+
+### Arming, disarming and failsafe
+
+<p align="center">
+  <img src="docs/images/24_safety.png" alt="Arming, disarming and failsafe logic" width="100%">
+</p>
+
+- **Arming** happens only at the moment the arm switch is turned on, with throttle low. Powering up with the switch on, or arming with throttle high, is refused until the switch is cycled.
+- **Disarming** always wins: turning the arm switch off disarms immediately, including during failsafe.
+- **Configurator connected:** an armed FC disarms as soon as the Configurator connects over USB, and arming stays blocked while it is connected.
+- **Link loss** is declared when CRSF link quality stays below 5 % for 1 second. The response is configurable in the Failsafe tab:
+
+| Setting | Link loss | Low battery |
+|---|---|---|
+| Default | `DROP`: disarm after the delay, no autonomy | `WARN`: buzzer and OSD only |
+| Option | `LAND`: hold level and descend slowly (no GPS needed) | `LAND` at critical voltage |
+| Option | `RTH`: return home with GPS, otherwise land | `RTH` at low voltage, land at critical |
+
+- **No autonomy without the pilot:** autonomous modes are only engaged by a switch.
+- **Level from any attitude:** when failsafe or the pilot commands level, the aircraft recovers even from inverted or 90° on its side. The simulator checks this every run (`inv_fs`, `flip_level`).
+
+---
+
+## ⚙ Control loop
+
+<p align="center">
+  <img src="docs/images/control-loop.svg" alt="CKFLIGHT control loop order, rates and interrupt priorities" width="100%">
+</p>
+
+Each iteration runs the same steps in the same order, on every board and in the simulator: receiver, gyro, accelerometer, magnetometer, barometer, GPS, IMU, navigation, setpoint, PID, mixer and DShot, then OSD, blackbox and monitoring. The loop then waits for the next period. On N6 it sleeps on a TIM5 semaphore, so idle CPU time goes to USB, SD, AI and the LCD.
+
+| Board | Gyro · PID · DShot | Accelerometer | Blackbox (default) |
+|---|---|---|---|
+| STM32H7 | 8 kHz | 8 kHz | 4 kHz (1/2) |
+| STM32N6 | 8 kHz | 8 kHz | 4 kHz (1/2) |
+| STM32F4 | 4 kHz | 1 kHz | 2 kHz (1/2) |
+
+Interrupt priorities follow one rule: short and time-critical on top, long and wait-tolerant at the bottom. The CRSF UART and the DShot output guard are at the top, USB is at the bottom.
+
+**Built-in diagnostics.** The terminal command `x` prints one health line every 500 ms:
+
+```text
+LOOP max us: 116 | target us: 125 | overrun/s: 0 | overrun total: 142 | CRSF rate Hz: 994 | CRSF ok total: 45104 | CRC err/s: 0 | CRC err total: 1 | UART ovr: 0
+```
+
+It shows the longest loop, overruns per second, receiver packet rate and errors, and the slowest code section when a loop overruns. Motor guard trips and skipped DShot frames appear only if they ever happen.
+
+---
+
+## 🖥 Configurator
+
+Everything you need to set up, tune and analyse the aircraft is in one app. Changes apply to the flight controller instantly, and **Save** makes them permanent.
+
+<p align="center">
+  <img src="docs/images/setup.png" alt="Setup page with a live 3D model of the aircraft" width="100%">
+</p>
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/images/pid.png" alt="PID tuning page"><br><b>PID tuning</b><br><sub>Live PID table, simplified sliders, feedforward, TPA, anti-gravity</sub></td>
+<td width="50%" align="center"><img src="docs/images/rates.png" alt="Rates page"><br><b>Rates and RC</b><br><sub>Rate curves with live stick position, RC smoothing</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/images/filters.png" alt="Filters page"><br><b>Filters</b><br><sub>Frequency response and delay of the configured filter chain</sub></td>
+<td width="50%" align="center"><img src="docs/images/mission.png" alt="GPS and mission planner"><br><b>GPS and mission planner</b><br><sub>Plan waypoints on the map and upload them to the FC</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/images/programming.png" alt="Programming page"><br><b>Programming</b><br><sub>ST-LINK, USB DFU, chip erase and N6 external flash</sub></td>
+<td width="50%" align="center"><img src="docs/images/parameters.png" alt="All parameters page"><br><b>All parameters</b><br><sub>Generated from the firmware's own table, new parameters appear automatically</sub></td>
+</tr>
+</table>
+
+<details>
+<summary><b>All Configurator pages</b></summary>
+
+| Group | Pages |
 |---|---|
-| Platforms | Linux, Windows |
-| Languages | English, Türkçe |
-| Targets | STM32 F4, H7, N6 |
-| Virtual FC | Built-in SITL, selectable as **Virtual FC (SITL)** in the port list |
-| Protocol | CKLink |
+| Flight controller | Setup, PID Tuning, Rate & RC, Filters, Modes, Failsafe, Flight Monitor, SD Card & Logs, RGB LED, GPS & Mission, Simulation, All Parameters |
+| Blackbox | Log Analysis, Auto Tune |
+| AI | AI / NN (STM32N6) |
+| Tools | Terminal with one-click commands and a live serial plotter, Programming |
 
-> The screenshots show the Configurator running against its built-in Virtual FC (SITL · H7 · FW 5.0.0) over CKLink. The light firmware in this repository has its own simpler USB configuration interface, described in [USB Configuration Interface (Light Firmware)](#usb-configuration-interface-light-firmware).
+The app runs on Linux and Windows, in English and Turkish, and includes a virtual flight controller (the SITL) so every page can be tried without hardware.
 
-## Pages
+</details>
 
-| Group | Page | Purpose |
-|-------|------|---------|
-| FC | Setup | FC connection, live status and tools |
-| FC | PID Tuning | PID table, simplified tuning, feedforward, TPA and anti gravity |
-| FC | Rate & RC | Rates and RC settings |
-| FC | Modes | Flight modes |
-| FC | Failsafe | Failsafe settings |
-| FC | GPS & Mission | GPS and mission planning |
-| FC | Simulation | Simulation with the built-in Virtual FC |
-| FC | Filters | Gyro low-pass and notch filters with frequency response |
-| FC | All Parameters | Full parameter list |
-| FC | Terminal | FC terminal |
-| FC | Programming | Firmware programming |
-| Blackbox | SD Card & Logs | Open LOG files from the SD card |
-| Blackbox | Log Analysis | Spectrum, spectrogram, step response and frequency response |
-| Blackbox | Auto Tune | PID and filter proposals from flight logs |
+### Sensors at runtime
 
-## Getting Started
+`CK_SETTINGS.h` only sets the defaults. Sensors can be switched from the Setup page and take effect after a reboot.
 
-1. Plug the FC into the computer with a USB cable.
-2. Pick the port at the top right (STM32 / ttyACM) and press **Connect**.
-3. Changes apply to the FC instantly; press **Save** to make them permanent.
+<p align="center">
+  <img src="docs/images/sensors.png" alt="Runtime sensor switches" width="100%">
+</p>
 
-No hardware at hand? Choose **Try the Virtual FC** or **Try a demo log** on the Setup page.
+### CKLink protocol
 
-## Tuning
+<p align="center">
+  <img src="docs/images/21_cklink.png" alt="CKLink protocol between the Configurator and the flight controller" width="100%">
+</p>
 
-<img width="100%" alt="CKFLIGHT Configurator tuning" src="docs/images/configurator_tuning.jpg" />
+The Configurator and the FC talk over **CKLink**, a compact MSP v2-framed protocol over USB. The FC describes its own parameter table (name, group, type, range, decimals, options), so a parameter added to the firmware appears in the app without changing the app. Live status, motor test and arm-guard safety commands use the same link.
 
-Live 3D attitude and telemetry, PID / rate / filter tuning with instant apply, modes, failsafe and motor tools over the CKLink protocol. Highlights: live 3D + telemetry, self-describing parameters, filter frequency response and arm-guard safety.
+---
 
-- **PID table:** P, I, D, FF and Dmax for roll, pitch and yaw. Typing a value into the table turns simplified tuning off.
-- **Simplified tuning (Betaflight method):** sliders scale the default PIDs: D gain, P & I gain, FF gain, D max, I gain, Pitch:Roll D, Pitch P·I·FF and master multiplier. Applied axes are selectable, with **Auto tune** and **Reset sliders** buttons.
-- **Feedforward:** jitter reduction, smoothness, boost, max rate limit and averaging.
-- **TPA:** breakpoint, rate and mode, reducing gain as throttle rises.
-- **Anti gravity:** gain, P gain and cutoff frequency.
-- **Filters:** gyro low-pass and notch filters drawn as a frequency response over the unfiltered gyro noise of an open log, with filter delay, attenuation at 100 Hz and gyro sampling rate.
-- **Arm-guard safety:** while the FC is armed the header shows **ARMED — settings locked** and settings are locked.
+## 🎯 AutoTune
 
-## Blackbox Log Analysis
+<p align="center">
+  <img src="docs/images/23_autotune.png" alt="AutoTune from a blackbox log" width="100%">
+</p>
 
-<img width="100%" alt="CKFLIGHT blackbox log analysis" src="docs/images/configurator_log_analysis.jpg" />
+AutoTune works from your flight logs. It identifies the aircraft's plant (gain, time constant, delay) and noise from a blackbox log, then proposes PID, filter, feedforward and RC smoothing changes round by round. The pilot flies, the toolchain closes the loop.
 
-Spectrum, spectrogram, step response (Welch H1 with confidence bands) and closed-loop frequency response with gain / phase margins.
+The method follows a proven manual tuning order:
 
-- Open a LOG file from the **SD Card & Logs** page or by drag-and-drop.
-- Tabs: Summary, Anomalies, Time, Spectrum, Spectrogram, Step Response, Frequency Response, Statistics.
-- Searchable channel tree for gyro, setpoint, RC, throttle and motor data.
-- Step response options: method (Spectral H1), window, filtered gyro, split and airborne-only segments.
-- Export with **Save .bin**, **Save PNG** and **Export CSV**.
+1. Lower D slightly
+2. Find the P and I balance
+3. Raise the master gain until oscillation appears, then back off
 
-## AutoTune from Flight Logs
+Feedforward is tuned independently of PID for stick feel. Changes are small per round and oscillations are fixed with small touches in later rounds. PID and filter changes are applied separately, and filters are never made aggressive or noisy during tuning.
 
-<img width="100%" alt="CKFLIGHT AutoTune" src="docs/images/configurator_autotune.jpg" />
+<p align="center">
+  <img src="docs/images/07_autotune.jpg" alt="AutoTune page in the Configurator" width="100%">
+</p>
 
-AutoTune identifies the plant (gain, time constant, delay) and noise from a blackbox log, then co-optimizes PID, filters, feedforward and RC smoothing, round by round.
+---
 
-- **Tune sessions** per drone, in multiple rounds: fly a 2–3 min test flight, load the log, apply the proposal, then fly the same routine again and load the new log.
-- **Log checks** before tuning: flight time, a calm hover of 15 s or more for noise measurement, roll and pitch flips in both directions, yaw 360° turns and per-axis model confidence.
-- **Flight style:** Racing or Freestyle.
-- **Proposal:** every PID and filter change is listed with its current value, proposed value and reason; checked items are applied.
-- **Metrics:** model confidence, roll/pitch crossover bandwidth, overshoot per axis, motor noise against its budget and measured RC link rate.
-- **Results:** resulting PIDs computed with the firmware formula, and the resulting filter chain with gyro filter delay.
-- Tabs: Proposal, Step response, Filters & noise, Model, Insights & test flight. Results can be saved as a profile.
+## 📈 Blackbox
 
-## USB Configuration Interface (Light Firmware)
+Logging is designed to be invisible in flight and convenient on the bench:
 
-The light firmware in this repository supports two configuration modes on the same USB port:
+- Recording starts at the first **ARM** and stops at **DISARM**. Re-arming continues where it left off, so a whole session is one log.
+- SD writes go through DMA in a non-blocking state machine and never wait inside the flight loop.
+- The default rate is **1/2 of the loop** (4 kHz on H7 and N6, 2 kHz on F4). 1/1, 1/4 and slower can be chosen in the SD Card tab.
+- Logs are downloaded over USB from the FC while disarmed. No card reader needed.
+- On STM32N6, logs are written by a FileX thread, one `LOG0000.BIN`, `LOG0001.BIN`... per power-up.
 
-| Mode | Handshake (6 bytes) | Used by |
-|------|---------------------|---------|
-| GUI configuration | `CK<$_G` | GUI client |
-| Terminal configuration | `CK<$_T` | Any serial terminal (menu driven) |
+Open a flight log in the Configurator and get automatic insights, noise spectra, spectrograms and step response.
 
-When a valid handshake is received the buzzer is disabled and the firmware enters the selected configuration mode.
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/images/log-summary.png" alt="Log summary"><br><b>Summary and insights</b></td>
+<td width="50%" align="center"><img src="docs/images/log-spectrum.png" alt="Noise spectrum"><br><b>Noise spectrum</b></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/images/log-spectrogram.png" alt="Spectrogram"><br><b>Spectrogram</b></td>
+<td width="50%" align="center"><img src="docs/images/log-step-response.png" alt="Step response"><br><b>Step response</b></td>
+</tr>
+</table>
 
-> **Safety:** Configuration mode runs a blocking loop on the flight controller, so the flight loop does not run while configuring. Always connect with the quad disarmed and props removed.
+<sub>The log screenshots above use the app's built-in synthetic demo log.</sub>
 
-<img width="100%" alt="USB configuration interface" src="docs/images/light_fw_usb_flow.png" />
+A standalone analysis tool is also available: [CKFLIGHT Flight Log Tools](https://github.com/ckflight/Flight_Log_Tools).
 
-### GUI Packet Protocol
+---
 
-All GUI packets use the same frame structure:
+## ✈ Simulator
+
+The simulator (SITL) compiles the **real firmware** for the PC and flies it against a physics model. No hardware is needed, and it runs inside the Configurator.
+
+<p align="center">
+  <img src="docs/images/simulation-flight.gif" alt="A waypoint mission flown by the real firmware in the simulator" width="100%">
+</p>
+
+- Fly with a virtual radio, or run a full mission
+- Inject wind, turbulence, RC link loss, GPS loss and low battery
+- Compare the true state with the firmware's own estimate, live
+- Run automated scenarios with randomized wind and vehicle mass
+
+| Scenario | What it checks |
+|---|---|
+| `alt_hold`, `pos_hold` | Holding altitude and position in wind |
+| `mission`, `land` | Flying a waypoint mission and landing |
+| `rth`, `rth_basic`, `rth_switch` | Return-to-home |
+| `link_loss`, `link_drop`, `battery` | RC and battery failsafe (`link_drop`: default DROP, no autonomous landing) |
+| `fs_reclaim` | Link returns during a failsafe landing: control goes straight back to the pilot |
+| `fs_manual` | Blind landing with only gyro and accelerometer |
+| `acro_fs` | Link lost during aggressive acro: flips, fast yaw, banked turns |
+| `inv_fs`, `flip_level` | Recovery to level from inverted, sideways and after repeated flips |
+| `gps_glitch`, `gps_lost` | GPS jumps and permanent GPS loss |
+| `level_drift` | Attitude estimate staying level through yaw turns in angle mode |
+| `arm_throttle` | Arming refused with throttle high, allowed after the switch is cycled |
+| `takeover` | The pilot taking back control |
+
+`tools/sim/run_scenarios.py` runs the core set with randomized seeds and reports pass or fail for each run.
+
+<p align="center">
+  <img src="docs/images/22_sitl.png" alt="SITL: the real firmware flying on a PC" width="100%">
+</p>
+
+---
+
+## 🧩 Architecture
+
+<p align="center">
+  <img src="docs/images/20_architecture.png" alt="CKFLIGHT firmware and tools architecture, from sensor to motor" width="100%">
+</p>
 
 ```text
-'C' 'K' | TYPE (1 byte) | LEN (1 byte) | PAYLOAD (LEN bytes) | CRC (1 byte)
+ckflight/
+├── App/            Shared flight code: control, sensors, navigation, CKLink
+│   ├── FLIGHT/       PID, mixer, DShot, receiver, modes, failsafe, navigation, blackbox
+│   ├── MOTION/       Gyro, accelerometer, IMU, barometer, magnetometer
+│   ├── SENSORS/      Device drivers
+│   ├── COMMUNICATION/ CKLink, parameters, MSP, terminal
+│   └── OSD/          MAX7456 and MSP OSD
+├── Platform/       STM32F4, STM32H7, STM32N6, STM32N6_AI and SITL support
+├── Bootloader/     STM32N6 first-stage bootloader
+├── Targets/        Per-board pins and default settings
+├── tools/          Simulator scenarios, unit tests, analysis
+├── Configurator/   Desktop application
+├── cmake/          ARM GCC toolchain
+└── docs/           Notes, build documentation and images
 ```
 
-`CRC` is the sum of all preceding bytes (header, type, length and payload) modulo 256. Responses from the flight controller are sent as ASCII decimal values separated by `/`.
+**Design rules**
 
-<img width="100%" alt="GUI packet frame" src="docs/images/light_fw_packet_frame.png" />
+- **One flight code, many platforms.** `App/` never touches a specific MCU. Each `Platform/` provides drivers, and each `Targets/` board provides pins and defaults.
+- **The simulator is the firmware.** SITL builds the same `App/` code with stubbed hardware, so a scenario that passes in simulation exercises the code that flies.
+- **Proven references.** Algorithms follow Betaflight, INAV, ArduPilot and PX4, and a change goes in only when it demonstrably improves something.
 
-| Type | Name | Direction | Description |
-|------|------|-----------|-------------|
-| `0x01` | `GUI_PID_DATA` | GUI → FC | PID profile parameters (21-byte payload), saved to flash |
-| `0x02` | `GUI_CONFIG_DATA` | GUI → FC | General configuration data |
-| `0x03` | `GUI_RC_DATA` | GUI → FC | RC configuration data |
-| `0x04` | `GUI_SETTINGS_DATA` | GUI → FC | Firmware settings data |
-| `0x05` | `GUI_MODES_DATA` | GUI → FC | Flight modes and switch ranges (acro, level, GPS rescue, ...) |
-| `0x06` | `GUI_FC_RESPONSE_CMD` | FC → GUI | Response packet, payload `0xFF` = parameters saved |
-| `0x07` | `GUI_CONFIG_DONE_CMD` | GUI → FC | Configuration finished, exits GUI mode |
-| `0x08` | `GUI_GET_PID_DEFAULTS_CMD` | GUI ↔ FC | Request / return default PID profile parameters |
-| `0x09` | `GUI_GET_RC_DEFAULTS_CMD` | GUI ↔ FC | Request / return default RC parameters |
+---
 
-In this light version, PID profile packets are written to flash; config, RC, settings and modes packets are acknowledged with the saved response and are reserved for the full CKFLIGHT firmware.
+## 🔌 Supported hardware
 
-#### PID Profile Parameters (`0x01` / `0x08`)
+| Target | MCU | Application |
+|---|---|---|
+| `CKFLIGHTF4_V4` | STM32F4 | Flight controller, also an official Betaflight target (`CKFLIGHTF4`) |
+| `REVOLT` | STM32F4 | Flight controller |
+| `CKFLIGHTH7_V2` | STM32H7 | Flight controller |
+| `KAKUTE_H7_1V3` | STM32H7 | Flight controller |
+| `MATEKH743_SLIMV3` | STM32H7 | Flight controller |
+| `STM32N6570_DK_FC` | STM32N6 | Flight controller development |
+| `STM32N6570_DK` | STM32N6 | AI vision development |
+| `SITL` | PC | Simulator |
+
+**Drivers included**
+
+| Type | Devices |
+|---|---|
+| IMU | ICM20602, ICM45686, ICM42688P, ICM42605, IIM42652, MPU6000, L3GD20H, LSM303D, FXOS8700CQ, BNO055 |
+| Magnetometer | MAG3110, LSM303D, FXOS8700CQ, HMC5983, QMC5883L, MLX90393 |
+| Barometer | MS5607, BMP280, MS5611, DPS310 |
+| GPS | u-blox 7, u-blox 8, M10 series |
+| ESC | DShot600, PWM, BLHeli passthrough |
+| Receiver | CRSF, SBUS |
+
+The CKFLIGHT hardware family also includes custom ESCs, PDBs and radio transmitter and receiver designs. Availability depends on the board and its configuration. Validate every board before flight.
+
+---
+
+## 🚀 Getting started
+
+### Build the firmware
+
+You need the ARM GNU Toolchain, CMake and Ninja. STM32CubeIDE is not required.
+
+```bash
+git clone https://github.com/ckflight/ckflight.git
+cd ckflight
+
+cmake -S . -B build/CKFLIGHTH7_V2 -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/arm-gcc-toolchain.cmake \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCK_TARGET=CKFLIGHTH7_V2
+
+cmake --build build/CKFLIGHTH7_V2 -j 8
+```
+
+Replace `CKFLIGHTH7_V2` with any target from the table above.
+
+### Run the simulator tests
+
+```bash
+cmake -S . -B build/sitl -G Ninja -DCK_TARGET=SITL -DCMAKE_BUILD_TYPE=Release
+cmake --build build/sitl
+
+python3 tools/sim/run_scenarios.py
+```
+
+### Install the Configurator
+
+From a release package on Linux:
+
+```bash
+tar xzf CKFLIGHT-Configurator-linux-x86_64.tar.gz
+cd CKFLIGHT-Configurator-linux-x86_64
+./install.sh            # ./install.sh --remove uninstalls a previous version
+
+sudo usermod -aG dialout $USER   # one time, for USB access; log out and back in
+```
+
+Or from the Configurator source folder:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 run.py
+```
+
+The Programming page uses `STM32_Programmer_CLI`, so install [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) to use it.
+
+### First flight checklist
+
+1. Remove the propellers.
+2. Connect the Configurator and check board orientation on the Setup page: the 3D model must follow the aircraft.
+3. Check motor order and direction with the motor test. It needs the propellers-removed confirmation and only runs disarmed.
+4. Assign the ARM switch and flight modes in Modes, and set the link-loss action in Failsafe.
+5. Disconnect the Configurator. Arming is blocked while it is connected.
+6. Arm with throttle low and confirm all four motors idle, then disarm. Only then fit the propellers.
+
+### Add a new flight controller
+
+Each board has a directory under `Targets/`:
 
 ```text
-TPA             -> tpa_breakpoint (16-bit), tpa_rate, tpa_mode
-Anti Gravity    -> anti_gravity_gain, anti_gravity_p_gain, anti_gravity_cutoff_hz
-Simplified Tune -> simplified_pids_mode, simplified_master_multiplier,
-                   simplified_pi_gain, simplified_i_gain, simplified_d_gain,
-                   simplified_d_max_gain, simplified_feedforward_gain,
-                   simplified_roll_pitch_ratio, simplified_pitch_pi_gain
-Feedforward     -> feedforward_averaging, feedforward_max_rate_limit,
-                   feedforward_smooth_factor, feedforward_jitter_factor,
-                   feedforward_boost
+Targets/CKFLIGHTH7_V2/
+├── target.cmake     MCU family and build options
+├── CK_CONFIG.h      Pins, peripheral mapping and loop rates
+└── CK_SETTINGS.h    Default sensors and features
 ```
 
-#### RC Parameters (`0x09`)
+Copy a similar target, adjust the pins, and build it with `-DCK_TARGET=<name>`. Check every peripheral and flight-critical function before flying.
 
-```text
-Deadband        -> deadband, yaw_deadband, midrc (16-bit)
-Rate Limits     -> rate_limit[ROLL, PITCH, YAW] (16-bit each)
-Rates           -> rcRates[RPY], rcExpo[RPY], rates[RPY]
-RC Smoothing    -> rc_smoothing_mode, rc_smoothing_setpoint_cutoff,
-                   rc_smoothing_feedforward_cutoff, rc_smoothing_throttle_cutoff,
-                   rc_smoothing_debug_axis, rc_smoothing_auto_factor_rpy,
-                   rc_smoothing_auto_factor_throttle
+<details>
+<summary><b>STM32N6 boot and flash layout</b></summary>
+
+STM32N6 has no internal flash. A first-stage bootloader (FSBL) loads the application from external NOR flash into RAM.
+
+| Address | Content |
+|---|---|
+| `0x70000000` | FSBL (`CKFLIGHT_N6_FSBL-Trusted.bin`) |
+| `0x70100000` | Application (`CKFLIGHT_N6-Trusted.bin`) |
+| `0x77FF0000` | Flight controller settings |
+
+Build the FSBL separately:
+
+```bash
+cmake -S Bootloader/STM32N6 -B build/STM32N6_FSBL -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/arm-gcc-toolchain.cmake \
+  -DCMAKE_BUILD_TYPE=Debug
+
+cmake --build build/STM32N6_FSBL -j 8
 ```
 
-### Terminal Configuration Menu
+Both images can be written from the Configurator's Programming page with the `MX66UW1G45G_STM32N6570-DK` external loader.
 
-After sending `CK<$_T`, the flight controller prints a configuration menu:
+</details>
 
-```text
-1. PID Configuration
-   1a.Roll  1b.Pitch  1c.Yaw  1d.Althold  1e.Velocity  1f.Navigation
-   1g.Level  1h.Horizon  1i.Dmin  1j.FeedForward  1k.TPA_Breakpoint  1l.TPA_Rate
-2. RC Configuration
-   2a.RC_Idle_Drift  2b.RC_Idle_Trim  2c.Yaw_Deadband
-3. Accelerometer Calibration
-4. RC Rates Configuration
-   4a.RC_Rate  4b.RC_Expo  4c.Rates
-5. Exit
-```
+<details>
+<summary><b>STM32N6 AI vision platform</b></summary>
 
-Values are entered as comma-terminated lists:
+- STM32N6570 Cortex-M55 platform with hardware-accelerated neural network inference
+- OV5640 camera through DCMIPP
+- BlazeFace face detection, face classification and recognition, face feature extraction (Re-ID)
+- LCD visualization and overlays
+- Ethernet TCP with NetX Duo and USBX CDC
+- External XSPI flash and PSRAM
+- The flight loop runs as the highest-priority ThreadX thread; AI, camera and LCD use the remaining CPU time
 
-```text
-1g70,10,10,      -> Level P, I, D = 70, 10, 10
-1l40,            -> TPA rate = 40
-4a120,120,120,   -> RC rate roll, pitch, yaw = 120
-```
+</details>
 
-Selecting `5` exits configuration and restarts the flight controller.
+<details>
+<summary><b>Terminal interface</b></summary>
 
-### Parameter Storage
+https://github.com/user-attachments/assets/535e39e9-0e48-4be0-abaf-20bba0b0e894
 
-Parameters are stored in the MCU's internal flash (`Core/Inc/COMMUNICATION/CK_CONFIGURATION.h`):
+![Terminal Interface](https://github.com/user-attachments/assets/935bc549-ba67-491f-a17a-4a270db213b6)
 
-| Block | Size |
-|-------|------|
-| Configuration ID (`CK<$`) | 20 bytes |
-| PID parameters | 50 bytes |
-| Accelerometer calibration | 6 bytes |
-| RC parameters | 30 bytes |
-| SD logging parameters | 10 bytes |
-
-On first boot after an erase, `CK_CONFIGURATION_Init()` writes the default parameters once and sets the configuration ID.
+</details>
 
 ---
 
-# Supported Hardware
+## 📍 Project status
 
-Primary target:
-
-- STM32H743 flight controller platforms
-
-Supported sensors currently present in firmware:
-
-## IMUs
-- ICM20602_GYRO,
-- ICM45686_GYRO,
-- ICM42688P_GYRO,
-- L3GD20H_GYRO,
-- ICM42605_GYRO,
-- IIM42652_GYRO,
-- MPU6000_GYRO,
-- ICM20602_ACC,
-- ICM45686_ACC,
-- ICM42688P_ACC,
-- IIM42652_ACC,
-- LSM303D_ACC,
-- FXOS8700CQ_ACC,
-- ICM42605_ACC,
-- MPU6000_ACC,
-- BNO055_IMU
-
-## Magnetometers
-- MAG3110_MAGNETO,
-- LSM303D_MAGNETO,
-- FXOS8700CQ_MAGNETO,
-- HMC5983_MAGNETO,
-- QMC5883L_MAGNETO,
-- MLX90393_MAGNETO,
-
-## Barometers
-- MS5607_BAROMETER,
-- BMP280_BAROMETER,
-- MS5611_BAROMETER,
-- DPS310_BAROMETER,
-
-## GPS
-- GPS_UBLOX7,
-- GPS_UBLOX8,
-- M10 Series
----
-
-# Board Porting and Configuration Guide
-
-CKFLIGHT H7 is designed so that custom STM32H7 flight-controller boards and commercially available Betaflight-style flight controllers can be adapted through configuration headers.
-
-The main configuration files are:
-
-```text
-Core/Inc/CK_DEFINITIONS.h
-Core/Inc/CK_SETTINGS.h
-Core/Inc/config/
-```
+| Component | Status |
+|---|---|
+| STM32F4 and STM32H7 flight control | ✅ Flying |
+| Synchronous DShot and motor output safety | ✅ Flying |
+| Configurator | ✅ Available |
+| SITL simulator | ✅ Available |
+| Autonomous navigation | 🧪 Verified in simulation, field testing in progress |
+| AutoTune | 🧪 New |
+| Configurator programming page | 🧪 New |
+| STM32N6 flight controller target | 🧪 Flight testing |
+| STM32N6 AI vision application and FSBL | ✅ Functional |
+| STM32N6 AI and flight controller integration | 📝 Planned |
 
 ---
 
-## Board Selection
+## ⚠️ Disclaimer
 
-<img width="2494" height="1404" alt="Image" src="https://github.com/user-attachments/assets/e4420c43-7bd6-4e89-9a34-cfe242fd0568" />
-<img width="2494" height="1404" alt="Image" src="https://github.com/user-attachments/assets/2db4f87e-cab1-49af-92f2-14391fc41286" />
+CKFLIGHT is intended for educational, experimental and research purposes.
 
-`CK_DEFINITIONS.h` selects the target board and MCU family.
+Flight controller firmware operates safety-critical hardware. You are responsible for validating board configurations, sensors, motor direction and failsafe behaviour. Remove propellers during bench tests, and do not fly untested firmware without appropriate safety precautions.
 
-Example:
+<p align="center">
+  <img src="docs/images/CKFLIGHT%20Neon%20Flight%20Platform.png" alt="CKFLIGHT" width="80%">
+</p>
 
-```c
-#define CKFLIGHT_F4 false
-#define CKFLIGHT_H7 true
-#define KAKUTE_H7_1v3 false
-#define MATEKH743_SLIMV3 false
-#define RF_REVOLT false
-```
-
-Only one target board should be enabled at a time.
-
-Currently included board targets include:
-
-```text
-CKFLIGHT_H7
-KAKUTE_H7_v1.3
-MATEKH743_SLIMV3
-CKFLIGHT_F4
-RF_REVOLT
-```
-
-Each board target includes its own pin/peripheral configuration from:
-
-```text
-Core/Inc/config/
-```
-
-To port the firmware to another Betaflight-compatible STM32H7 flight controller:
-
-1. Add a new board definition in `CK_DEFINITIONS.h`
-2. Create a matching board config header in `Core/Inc/config/`
-3. Map the correct SPI, UART, I2C, timer, motor, receiver, OSD, LED, buzzer, ADC, and chip-select pins
-4. Select the required sensors and peripherals in `CK_SETTINGS.h`
-5. Verify interrupt priorities, DMA usage, and timer assignments
-6. Build and flash using STM32CubeIDE
-
----
-
-## Feature and Peripheral Selection
-
-`CK_SETTINGS.h` enables or disables firmware modules depending on the hardware.
-
-Examples:
-
-```c
-#define GYRO1_SPI_ 1
-#define ACC1_SPI_ 1
-#define GYRO2_SPI_ 0
-#define ACC2_SPI_ 0
-
-#define USE_BARO_ 0
-#define USE_MAG_ 0
-#define GPS_ 1
-
-#define LOG_SPI_ 1
-#define LOG_SDIO_ 0
-#define LOG_FLASH_ 0
-
-#define SBUS_ 0
-#define CRSF_ 1
-
-#define OSD_DJI_ 1
-#define RGB_ 1
-#define LED1_ 1
-```
-
-This allows the same firmware architecture to be adapted to different flight-controller layouts.
-
----
-
-## Flight Performance Options
-
-Advanced flight-performance features are enabled from `CK_SETTINGS.h`.
-
-Currently supported options include:
-
-```c
-#define USE_DSHOT
-#define USE_RC_SMOOTHING_FILTER
-#define USE_AIRMODE_LPF
-#define USE_ITERM_RELAX
-#define USE_ABSOLUTE_CONTROL
-#define USE_DYN_LPF
-#define USE_INTEGRATED_YAW_CONTROL
-#define USE_AIRMODE
-#define USE_GYRO_OVERFLOW_CHECK
-#define USE_THROTTLE_BOOST
-#define USE_FEEDFORWARD
-#define USE_TPA_MODE
-#define USE_D_MAX
-#define USE_ACC
-#define USE_THRUST_LINEARIZATION
-#define USE_SIMPLIFIED_TUNING
-```
-
-These features provide a modern control architecture similar in concept to high-performance open-source flight-controller firmware.
-
----
-
-## Sensor Orientation and Mixer Setup
-
-Sensor orientation and motor mixer configuration are also controlled from `CK_SETTINGS.h`.
-
-Example:
-
-```c
-#define GYRO_ORIENTATION_X_SIGN 1
-#define GYRO_ORIENTATION_Y_SIGN 1
-#define GYRO_ORIENTATION_Z_SIGN -1
-#define GYRO_ORIENTATION_SWAP_XY false
-
-#define ACC_ORIENTATION_X_SIGN 1
-#define ACC_ORIENTATION_Y_SIGN 1
-#define ACC_ORIENTATION_Z_SIGN 1
-
-#define MIXER_ORIENTATION 3
-#define MIXER_ESC_REVERSED true
-```
-
-These settings must be checked carefully when using a different frame layout, IMU orientation, or ESC mounting direction.
-
----
-
-## Important Porting Notes
-
-Before flying on a new board:
-
-- Verify all motor outputs with props removed
-- Confirm gyro and accelerometer orientation
-- Confirm receiver channel mapping
-- Confirm arming, failsafe, and motor stop behavior
-- Confirm battery voltage/current ADC scaling
-- Confirm DSHOT/timer/DMA assignments
-- Confirm SD card or flash logging configuration
-- Confirm OSD, GPS, buzzer, LED, and telemetry peripherals
-- Test sensor data over USB before enabling flight
-
-This firmware is intended as a technical and educational reference. Hardware-specific validation is required before flight use.
-
----
-
-# Firmware Architecture
-
-```text
-Core/
-├── Inc/
-│   ├── COMMON/
-│   ├── COMMUNICATION/
-│   ├── DRIVERS/
-│   ├── FLASH/
-│   ├── FLIGHT/
-│   ├── MOTION/
-│   ├── OSD/
-│   ├── SENSORS/
-│   ├── config/
-│   ├── CK_DEFINITIONS.h
-│   ├── CK_SETTINGS.h
-│   ├── NOTES.txt
-│   ├── firmware_notes.txt
-│   ├── git_commit_hash.h
-│   ├── git_hash.py
-│   ├── main.h
-│   ├── stm32h7xx_hal_conf.h
-│   └── stm32h7xx_it.h
-│
-├── Src/
-│   ├── COMMUNICATION/
-│   ├── DRIVERS/
-│   ├── FLASH/
-│   ├── FLIGHT/
-│   ├── MOTION/
-│   ├── OSD/
-│   ├── SENSORS/
-│   ├── FATFS/
-│   ├── USB_DEVICE/
-│   ├── main.c
-│   ├── stm32h7xx_hal_msp.c
-│   ├── stm32h7xx_it.c
-│   └── system_stm32h7xx.c
-│
-└── Startup/
-    └── startup_stm32h743xx.s
-```
-
----
-
-## Main Firmware Modules
-
-```text
-FLIGHT/         -> PID, mixer, RC processing, navigation, failsafe
-SENSORS/        -> IMU, barometer, magnetometer drivers
-DRIVERS/        -> SPI, UART, I2C, ADC, DMA, GPIO
-COMMUNICATION/  -> MSP, USB CDC, telemetry, configurator protocol
-OSD/            -> On-screen display
-FLASH/          -> Flash memory handling
-MOTION/         -> Motion estimation and filtering
-FATFS/          -> SD card filesystem and logging
-```
-
-The project prioritizes:
-
-- Readability
-- Real-time determinism
-- Low-level hardware understanding
-- Educational value
-- Minimal abstraction overhead
-
----
-
-# Development Environment
-
-- STM32CubeIDE
-- STM32 HAL drivers
-- STM32H7 series MCU
-- Bare-metal architecture (no RTOS)
-
----
-
-# Design Goals
-
-This project was developed to provide:
-
-- A readable modern flight-controller firmware
-- A learning-oriented STM32H7 embedded architecture
-- A practical reference for:
-  - Sensor fusion
-  - PID control
-  - Real-time embedded systems
-  - DMA-driven communication
-  - Digital motor protocols
-  - Flight logging systems
-
-Unlike highly abstracted production firmware stacks, this repository focuses on exposing low-level implementation details for educational and research purposes.
-
----
-
-# Current Status
-
-The firmware includes:
-
-- Real flight-control infrastructure
-- Sensor drivers
-- Communication stacks
-- Logging systems
-- USB interfaces
-- Real-time control architecture
-
-Development is ongoing.
-
----
-
-# Repository Purpose
-
-This repository is published as:
-
-- Educational reference
-- Embedded systems learning resource
-- Flight-controller architecture example
-- STM32H7 real-time firmware reference
-- Personal engineering portfolio project
-
----
-
-# License
-
-This project is licensed under the GNU General Public License v3.0 (GPLv3).
-
-You are free to use, modify, and distribute this software under the terms of the GPLv3 license. Any distributed modifications or derivative works must also be released under the same license and include source code.
-
-For full license text:
-https://www.gnu.org/licenses/gpl-3.0.html
-
----
-
-# Author
-
-Cenk Keskin
-
-GitHub:
-https://github.com/ckflight/CKFLIGHT-H7
+<p align="center">
+  <b>By Cenk Keskin</b> · <a href="https://www.linkedin.com/in/cenkkeskin">LinkedIn</a>
+</p>

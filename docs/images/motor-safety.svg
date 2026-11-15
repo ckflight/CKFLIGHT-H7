@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07101f"/>
+      <stop offset="1" stop-color="#0c1a33"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#22d3ee"/>
+    </marker>
+    <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f97316"/>
+    </marker>
+    <style>
+      .t  { fill:#e6f1ff; }
+      .s  { fill:#9fb3cc; }
+      .c  { fill:#22d3ee; }
+      .o  { fill:#f97316; }
+      .g  { fill:#34d399; }
+      .box { fill:#0f2140; stroke:#1f3d66; stroke-width:2; }
+      .hot { fill:#0f2140; stroke:#22d3ee; stroke-width:2; }
+      .mono { font-family: Consolas, Menlo, monospace; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1600" height="6" fill="url(#bar)"/>
+
+  <text x="60" y="78" class="c" font-size="18" font-weight="600" letter-spacing="3">CKFLIGHT · MOTOR OUTPUT SAFETY</text>
+  <text x="60" y="122" class="t" font-size="38" font-weight="700">Motors never stay on when the firmware does not</text>
+  <text x="60" y="158" class="s" font-size="19">DShot frames are sent by the flight loop itself, right after the mixer. Three independent layers stop the motors if that loop dies.</text>
+
+  <!-- ===== Normal path ===== -->
+  <text x="60" y="222" class="c" font-size="15" font-weight="600" letter-spacing="2">NORMAL FLIGHT · EVERY LOOP (125 µs @ 8 kHz)</text>
+  <g font-size="17">
+    <rect x="60"  y="240" width="230" height="74" rx="10" class="box"/>
+    <text x="175" y="272" class="t" text-anchor="middle" font-weight="600">Gyro · PID</text>
+    <text x="175" y="296" class="s" text-anchor="middle" font-size="14">same loop</text>
+
+    <rect x="330" y="240" width="230" height="74" rx="10" class="box"/>
+    <text x="445" y="272" class="t" text-anchor="middle" font-weight="600">Mixer</text>
+    <text x="445" y="296" class="s" text-anchor="middle" font-size="14">4 motor values</text>
+
+    <rect x="600" y="240" width="300" height="74" rx="10" class="hot"/>
+    <text x="750" y="270" class="t" text-anchor="middle" font-weight="600">CK_DSHOT_Update()</text>
+    <text x="750" y="294" class="c" text-anchor="middle" font-size="14">heartbeat = 0 · 4 frames via DMA, together</text>
+
+    <rect x="940" y="240" width="200" height="74" rx="10" class="box"/>
+    <text x="1040" y="272" class="t" text-anchor="middle" font-weight="600">ESC × 4</text>
+    <text x="1040" y="296" class="s" text-anchor="middle" font-size="14">DShot600</text>
+
+    <line x1="290" y1="277" x2="326" y2="277" stroke="#22d3ee" stroke-width="2.5" marker-end="url(#arr)"/>
+    <line x1="560" y1="277" x2="596" y2="277" stroke="#22d3ee" stroke-width="2.5" marker-end="url(#arr)"/>
+    <line x1="900" y1="277" x2="936" y2="277" stroke="#22d3ee" stroke-width="2.5" marker-end="url(#arr)"/>
+  </g>
+  <g font-size="15">
+    <rect x="1180" y="240" width="360" height="74" rx="10" fill="#0b2a2a" stroke="#34d399" stroke-width="2"/>
+    <text x="1200" y="270" class="g" font-weight="600">✔ Fixed mixer → motor delay</text>
+    <text x="1200" y="294" class="s">no phase drift, no half-written frames</text>
+  </g>
+
+  <!-- ===== Layers ===== -->
+  <text x="60" y="380" class="o" font-size="15" font-weight="600" letter-spacing="2">IF THE LOOP DIES · THREE INDEPENDENT LAYERS</text>
+
+  <!-- Layer 1 -->
+  <rect x="60" y="398" width="480" height="300" rx="14" class="box"/>
+  <circle cx="102" cy="440" r="22" fill="#22d3ee"/>
+  <text x="102" y="447" fill="#07101f" font-size="20" font-weight="800" text-anchor="middle">1</text>
+  <text x="138" y="436" class="t" font-size="22" font-weight="700">Output guard</text>
+  <text x="138" y="460" class="s" font-size="15">firmware hangs, does not crash</text>
+  <g font-size="15" class="s">
+    <text x="84" y="505">• TIM7 interrupt, 1 kHz, priority 0</text>
+    <text x="84" y="533">• Counts ticks since the last frame</text>
+    <text x="98" y="561">(own counter, independent of SysTick)</text>
+    <text x="84" y="589">• No frame for <tspan class="c" font-weight="700">250 ms</tspan> → sends STOP</text>
+    <text x="84" y="617">• Latches: forces DISARM, re-arm needs</text>
+    <text x="98" y="645">the switch off → on</text>
+  </g>
+  <text x="84" y="682" class="mono c" font-size="14">DSHOT_INTERRUPT_Handler()</text>
+
+  <!-- Layer 2 -->
+  <rect x="560" y="398" width="480" height="300" rx="14" class="box"/>
+  <circle cx="602" cy="440" r="22" fill="#f97316"/>
+  <text x="602" y="447" fill="#07101f" font-size="20" font-weight="800" text-anchor="middle">2</text>
+  <text x="638" y="436" class="t" font-size="22" font-weight="700">Emergency stop</text>
+  <text x="638" y="460" class="s" font-size="15">CPU crash, every while(1) handler</text>
+  <g font-size="15" class="s">
+    <text x="584" y="505">• HardFault, MemManage, BusFault,</text>
+    <text x="598" y="533">UsageFault, NMI, SecureFault (N6)</text>
+    <text x="584" y="561">• Unhandled IRQ (Default_Handler), abort</text>
+    <text x="584" y="589">• Before every NVIC_SystemReset</text>
+    <text x="584" y="617">• No interrupts needed: <tspan class="o" font-weight="700">10 STOP frames</tspan></text>
+    <text x="598" y="645">by polling, then lines held LOW</text>
+  </g>
+  <text x="584" y="682" class="mono o" font-size="14">CK_ESC_EmergencyStop()</text>
+
+  <!-- Layer 3 -->
+  <rect x="1060" y="398" width="480" height="300" rx="14" class="box"/>
+  <circle cx="1102" cy="440" r="22" fill="#9fb3cc"/>
+  <text x="1102" y="447" fill="#07101f" font-size="20" font-weight="800" text-anchor="middle">3</text>
+  <text x="1138" y="436" class="t" font-size="22" font-weight="700">ESC signal loss</text>
+  <text x="1138" y="460" class="s" font-size="15">last line of defence</text>
+  <g font-size="15" class="s">
+    <text x="1084" y="505">• Frames only come from the flight loop,</text>
+    <text x="1098" y="533">never from a free-running timer</text>
+    <text x="1084" y="561">• No frames → the ESC stops by itself</text>
+    <text x="1098" y="589">e.g. Bluejay ~160 ms, AM32 500 ms</text>
+    <text x="1084" y="617">• Covers a hang inside a priority-0 ISR</text>
+    <text x="1098" y="645">or a fault inside the fault handler</text>
+  </g>
+  <text x="1084" y="682" class="mono s" font-size="14">ESC firmware</text>
+
+  <!-- Timeline -->
+  <text x="60" y="752" class="c" font-size="15" font-weight="600" letter-spacing="2">TIMELINE OF A LOOP HANG</text>
+  <line x1="80" y1="808" x2="1520" y2="808" stroke="#1f3d66" stroke-width="4"/>
+  <rect x="80" y="802" width="1440" height="12" rx="6" fill="#13284a"/>
+  <rect x="80" y="802" width="720" height="12" rx="6" fill="#f97316" opacity="0.35"/>
+
+  <g font-size="14">
+    <circle cx="80" cy="808" r="9" fill="#f97316"/>
+    <text x="80" y="845" class="t" text-anchor="middle">0 ms</text>
+    <text x="80" y="866" class="s" text-anchor="middle">loop stuck</text>
+
+    <circle cx="540" cy="808" r="7" fill="#9fb3cc"/>
+    <text x="540" y="845" class="s" text-anchor="middle">~160 ms</text>
+    <text x="540" y="866" class="s" text-anchor="middle">Bluejay stops</text>
+
+    <circle cx="800" cy="808" r="11" fill="#22d3ee"/>
+    <text x="800" y="845" class="c" text-anchor="middle" font-weight="700">250 ms</text>
+    <text x="800" y="866" class="c" text-anchor="middle">guard sends STOP + latch</text>
+
+    <circle cx="1520" cy="808" r="7" fill="#9fb3cc"/>
+    <text x="1520" y="845" class="s" text-anchor="end">500 ms</text>
+    <text x="1520" y="866" class="s" text-anchor="end">AM32 would stop</text>
+  </g>
+  <text x="1520" y="782" class="s" font-size="14" text-anchor="end">A crash (layer 2) does not wait: STOP goes out immediately.</text>
+</svg>
