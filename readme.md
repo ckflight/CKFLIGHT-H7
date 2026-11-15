@@ -19,7 +19,7 @@
 
 > [!NOTE]
 > **This repository is a light, sample version of CKFLIGHT.**
-> The STM32 firmware here is a much simpler version of the full CKFLIGHT firmware, shared as an example. The features described below belong to the full CKFLIGHT platform, and only part of them are included in this repository.
+> The STM32 firmware here is a much simpler version of the full CKFLIGHT firmware, shared as an example. It keeps the racing character of CKFLIGHT: with proper tuning it flies at speeds above 200 km/h with excellent performance. The autonomous features (altitude and position hold, missions, return-to-home, autonomous failsafe) have not been ported to this light version. The full CKFLIGHT platform is available at [ckflight/ckflight](https://github.com/ckflight/ckflight).
 
 <p align="center">
   <a href="#-highlights">Highlights</a> •
