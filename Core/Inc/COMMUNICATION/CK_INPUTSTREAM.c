@@ -40,7 +40,8 @@ void CK_INPUTSTREAM_Update(void){
 	 * It sends the copy of received data to each class that uses usb input command.
 	 */
 	uint8_t data;
-	while(CK_USBD_ReadData(&data) == 1){
+	// Bounded: a large burst stays in the USB ring buffer and is read in the next loops
+	while(inputStream.input_size < sizeof(inputStream.input_buffer) && CK_USBD_ReadData(&data) == 1){
 
 		inputStream.input_buffer[inputStream.input_size++] = data;
 	}

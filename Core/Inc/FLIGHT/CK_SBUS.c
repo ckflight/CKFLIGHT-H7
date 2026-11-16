@@ -236,6 +236,19 @@ void USART6_IRQHandler(void){
             }
         }
     }
+
+    // ORE left set without RXNE re-triggers the interrupt forever (interrupt storm): clear it.
+    // Never runs in normal operation. Details: CK_CRSF.c UART interrupt.
+	#if USE_F4 == 1
+    else if(CK_SBUS_UART->SR & USART_SR_ORE){
+    	(void)CK_SBUS_UART->DR;              // F4: reading SR + DR clears ORE
+    }
+	#endif
+	#if USE_H7 == 1
+    else if(CK_SBUS_UART->ISR & USART_ISR_ORE){
+    	CK_SBUS_UART->ICR = USART_ICR_ORECF; // H7: cleared only through ICR
+    }
+	#endif
 }
 
 #endif

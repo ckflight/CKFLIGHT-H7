@@ -2,9 +2,13 @@
 #include "CK_TIME_HAL.h"
 #include "DRIVERS/CK_SYSTEM.h"
 
-uint32_t sysTickCounter = 0;
+/*
+ * volatile: changed in the SysTick interrupt (HAL_IncTick), read by code that waits in a loop.
+ * Without volatile the compiler may hoist the read out of a wait loop at -O2 / -Os.
+ */
+volatile uint32_t sysTickCounter = 0;
 
-uint32_t timeout_num;
+volatile uint32_t timeout_num;
 
 void CK_TIME_SetTimeOut(uint32_t time){
 

@@ -48,8 +48,7 @@ extern DEBUG_TIME_t barometer_debug;
 extern DEBUG_TIME_t gps_debug;
 extern DEBUG_TIME_t bno055_debug;
 extern DEBUG_TIME_t imu_debug;
-extern DEBUG_TIME_t navigation_gps_rescue_debug;
-extern DEBUG_TIME_t navigation_gps_poshold_debug;
+extern DEBUG_TIME_t navigation_debug;
 extern DEBUG_TIME_t altitude_debug;
 extern DEBUG_TIME_t pid_debug;
 extern DEBUG_TIME_t mixer_debug;
@@ -131,6 +130,8 @@ void CK_PRINTER_PrintAltitudeHold(CK_PRINT_TIMEx time, uint32_t t);
 void CK_PRINTER_PrintIMUAngles(CK_PRINT_TIMEx time, uint32_t t);
 
 void CK_PRINTER_PrintLoopTime(uint32_t time);
+
+void CK_PRINTER_PrintHealth(CK_PRINT_TIMEx time);
 
 void CK_PRINTER_PrintDebugTimes(void);
 

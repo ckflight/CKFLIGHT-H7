@@ -3,6 +3,7 @@
 #include "DRIVERS/CK_TIME_HAL.h"
 
 #include "FLIGHT/CK_RC.h"
+#include "FLIGHT/CK_NAVIGATION.h"
 #include "FLIGHT/CK_RECEIVER.h"
 #include "FLIGHT/CK_SBUS.h"
 #include "FLIGHT/CK_CRSF.h"
@@ -60,11 +61,13 @@ control_rate_config_t rc_config = {
 		.deadband 				= 10,
 		.yaw_deadband			= 50,  // yaw ignores movement smaller than deadband
 
-		.midrc					= 1500,
+		// Gyro Z is +1 now (see CK_SETTINGS.h). Inverting the RC yaw relative to the old setting and the
+		// mixer yaw column keeps the yaw command reaching the motors exactly as before, for every
+		// MIXER_ORIENTATION / MIXER_ESC_REVERSED combination.
 #if MIXER_ESC_REVERSED==true
-		.yaw_control_reversed	= true,
-#else
 		.yaw_control_reversed	= false,
+#else
+		.yaw_control_reversed	= true,
 #endif
 		.rate_limit[ROLL] 		= SETPOINT_RATE_LIMIT,
 		.rate_limit[PITCH] 		= SETPOINT_RATE_LIMIT,
@@ -265,7 +268,7 @@ void CK_RC_Update(void){
     rc_debug.start_time = CK_TIME_GetMicroSec();
     #endif
 
-    isRxDataNew = isRxReceivingSignal();
+    isRxDataNew = CK_NAVIGATION_RcTick(isRxReceivingSignal());   // navigation output also counts as new data
 
     // 1. Main calls CK_RECEIVER_Update
     // Data is received and checked by receiver and channels flags are assigned and data is written to rcDataRaw
@@ -466,16 +469,11 @@ void processRcCommand(void)
 
             float angleRate;
 
-#ifdef USE_GPS_RESCUE
-            if ((axis == FD_YAW) && FLIGHT_MODE(GPS_RESCUE_MODE)) {
-                // If GPS Rescue is active then override the setpointRate used in the
-                // pid controller with the value calculated from the desired heading logic.
-                angleRate = gpsRescueGetYawRate();
-                // Treat the stick input as centered to avoid any stick deflection base modifications (like acceleration limit)
+            if (CK_NAVIGATION_GetSetpoint(axis, &angleRate)) {
+                // Autonomous flight (switch requested) gives the setpoint; stick deflection is ignored
                 rcDeflection[axis] = 0;
                 rcDeflectionAbs[axis] = 0;
             } else
-#endif
             {
                 // scale rcCommandf to range [-1.0, 1.0]
                 float rcCommandf;
@@ -546,6 +544,7 @@ void updateRcCommands(void)
 
     rcCommand[THROTTLE] = rcLookupThrottle(tmp);
 
+    CK_NAVIGATION_ApplyRcCommand(rcCommand);   // altitude controller throttle while a navigation mode is active
 }
 
 // receiver calls this method and updates

@@ -8,6 +8,8 @@
 #include "FLIGHT/CK_PID.h"
 #include "FLIGHT/pid_init.h"
 #include "FLIGHT/CK_RC.h"
+#include "FLIGHT/CK_RECEIVER.h"
+#include "FLIGHT/CK_ESC.h"
 
 #include "MOTION/CK_ACC.h"
 
@@ -253,6 +255,16 @@ void CK_CONFIGURATION_DecodeInputStream(uint8_t* buffer, uint16_t buffer_size){
 		}
 	}
 
+	/*
+	 * Configuration modes stop the flight loop until they exit. Never enter them while armed:
+	 * the motors would get no new frames (the output guard would stop them after 250 ms).
+	 */
+	if((is_terminal_config_enabled || is_gui_config_enabled) && flags.ARMED){
+		CK_USBD_StringPrintln("Configuration refused while armed. Disarm first.");
+		CK_USBD_Transmit();
+		return;
+	}
+
 	if(is_terminal_config_enabled) CK_CONFIGURATION_TerminalCMD();
 	if(is_gui_config_enabled){
 
@@ -278,8 +290,8 @@ void CK_CONFIGURATION_GuiCMD(void){
 
 		case 0:
 
-			// Read user inputs
-			while(CK_USBD_ReadData(&rx_data) == 1){
+			// Read user inputs (bounded by the buffer size)
+			while(config.term_index < sizeof(config.term_buffer) && CK_USBD_ReadData(&rx_data) == 1){
 
 				config.term_buffer[config.term_index++] = rx_data;
 			}
@@ -302,7 +314,7 @@ void CK_CONFIGURATION_GuiCMD(void){
 			break;
 
 		case 1:
-
+		{
 			// Decode data
 			bool is_correct_packet_received = CK_CONFIGURATION_DecodeGUIData();
 			UNUSED(is_correct_packet_received);
@@ -310,6 +322,7 @@ void CK_CONFIGURATION_GuiCMD(void){
 			state = 0;
 
 			break;
+		}
 
 		default:
 			break;
@@ -603,7 +616,7 @@ bool CK_CONFIGURATION_DecodeGUIData(void){
 				break;
 
 			case 2:
-
+			{
 				// Send a data is saved response to gui
 				uint8_t parameters_buffer[16]; // CK COMMAND LEN PAYLOAD CRC
 				uint8_t parameter_idx = 0;
@@ -633,6 +646,7 @@ bool CK_CONFIGURATION_DecodeGUIData(void){
 				is_packet_valid = true;
 
 				break;
+			}
 
 			default:
 
@@ -687,7 +701,7 @@ void CK_CONFIGURATION_TerminalCMD(void){
 
 		while(!config.is_term_input_done){
 
-			while(CK_USBD_ReadData(&rx_data) == 1){
+			while(config.term_index < sizeof(config.term_buffer) && CK_USBD_ReadData(&rx_data) == 1){
 
 				config.term_buffer[config.term_index++] = rx_data;
 			}
@@ -726,7 +740,7 @@ void CK_CONFIGURATION_TerminalCMD(void){
 	CK_USBD_StringPrintln("Restarting the system.");
 	CK_USBD_Transmit();
 	CK_TIME_DelayMilliSec(10);
-	NVIC_SystemReset();
+	CK_ESC_SystemReset();       // STOP to the motors first, then reset
 
 }
 

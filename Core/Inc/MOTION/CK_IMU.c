@@ -12,6 +12,7 @@
 #include "FLIGHT/CK_RECEIVER.h"
 #include "FLIGHT/CK_RC.h"
 #include "FLIGHT/CK_GPS.h"
+#include "FLIGHT/CK_NAV_ESTIMATOR.h"
 #include "FLIGHT/CK_MIXER.h"
 
 #include "COMMON/maths.h"
@@ -40,6 +41,16 @@ throttleCorrectionConfig_t throttleCorrectionConfig ={
 #define ATTITUDE_RESET_ACTIVE_TIME 500000  // 500ms - Time to wait for attitude to converge at high gain
 #define GPS_COG_MIN_GROUNDSPEED 100        // 1.0m/s - min groundspeed for GPS Heading reinitialisation etc
 
+/*
+ * Accelerometer weight (INAV flight/imu.c imuCalculateAccelerometerWeightNearness, MAX_ACC_NEARNESS):
+ * the further |a| is from 1 g, the less it is trusted, on a bell curve (61 % at 0.2 g, 14 % at 0.4 g).
+ * The old hard 0.9-1.1 g gate was open only 36 % of the flight time in a real log; the curve gives 62 %.
+ */
+#define ACC_WEIGHT_NEARNESS 0.2f
+
+/* Gyro bias estimate limit (INAV imuConfigure: dcm_i_limit = 2 degrees * Kp) */
+#define DCM_I_LIMIT_DEG 2.0f
+
 bool canUseGPSHeading = false;
 
 static float throttleAngleScale;
@@ -47,6 +58,10 @@ static int throttleAngleValue;
 static float smallAngleCosZ = 0;
 
 static imuRuntimeConfig_t imuRuntimeConfig;
+
+// Gyro bias estimate (rad/s, body axes) and the accelerometer weight of the last IMU step: for the log
+static float integralFB[XYZ_AXIS_COUNT];
+static float imuAccWeight;
 
 matrix33_t rMat;
 static vector2_t north_ef;
@@ -73,8 +88,8 @@ quaternion_t imuAttitudeQuaternion = QUATERNION_INITIALIZE;
 #endif
 
 imuConfig_t imuConfig={
-    .imu_dcm_kp = 2500,      // 1.0 * 10000
-    .imu_dcm_ki = 0,         // 0.003 * 10000
+    .imu_dcm_kp = 2500,      // 0.25 * 10000 (Betaflight)
+    .imu_dcm_ki = 50,        // 0.005 * 10000 (INAV ahrs_dcm_ki default): removes the gyro offset in flight
     .small_angle = DEFAULT_SMALL_ANGLE,
     .imu_process_denom = 2,
     .mag_declination = 0,
@@ -128,6 +143,8 @@ void imuConfigure(uint16_t throttle_correction_angle, uint8_t throttle_correctio
 	imuRuntimeConfig.imuDcmKp = imuConfig.imu_dcm_kp / 10000.0f;
 
 	imuRuntimeConfig.imuDcmKi = imuConfig.imu_dcm_ki / 10000.0f;
+
+	imuRuntimeConfig.imuDcmILimit = DEGREES_TO_RADIANS(DCM_I_LIMIT_DEG) * imuRuntimeConfig.imuDcmKp;
     // magnetic declination has negative sign (positive clockwise when seen from top)
     const float imuMagneticDeclinationRad = DEGREES_TO_RADIANS(imuConfig.mag_declination / 10.0f);
     north_ef.x = cos_approx(imuMagneticDeclinationRad);
@@ -162,19 +179,23 @@ static float invSqrt(float x)
     return 1.0f / sqrtf(x);
 }
 
+// INAV common/maths.c bellCurve() = gaussian(x, 0, curveWidth)
+static float bellCurve(const float x, const float curveWidth)
+{
+    return expf(-(x * x) / (2.0f * curveWidth * curveWidth));
+}
+
 // g[xyz] - gyro reading, in rad/s
-// useAcc, a[xyz] - accelerometer reading, direction only, normalized internally
+// accWeight, a[xyz] - accelerometer weight 0..1 (INAV accWScaler) and reading, direction only, normalized internally
 // headingErrMag - heading error (in earth frame) derived from magnetometter, rad/s around Z axis (* dcmKpGain)
 // headingErrCog - heading error (in earth frame) derived from CourseOverGround, rad/s around Z axis (* dcmKpGain)
 // dcmKpGain - gain applied to all error sources
 void imuMahonyAHRSupdate(float dt,
                                 float gx, float gy, float gz,
-                                bool useAcc, float ax, float ay, float az,
+                                float accWeight, float ax, float ay, float az,
                                 float headingErrMag, float headingErrCog,
                                 const float dcmKpGain)
 {
-    static float integralFBx = 0.0f,  integralFBy = 0.0f, integralFBz = 0.0f;    // integral error terms scaled by Ki
-
     // Calculate general spin rate (rad/s)
     const float spin_rate = sqrtf(sq(gx) + sq(gy) + sq(gz));
 
@@ -189,10 +210,11 @@ void imuMahonyAHRSupdate(float dt,
     //DEBUG_SET(DEBUG_ATTITUDE, 3, (headingErrCog * 100));
     //DEBUG_SET(DEBUG_ATTITUDE, 7, lrintf(dcmKpGain * 100.0f));
 
-    // Use measured acceleration vector
+    // Use measured acceleration vector (INAV imuMahonyAHRSupdate: the error is scaled by the weight)
+    float exAcc = 0, eyAcc = 0, ezAcc = 0;
     float recipAccNorm = sq(ax) + sq(ay) + sq(az);
-    if (useAcc && recipAccNorm > 0.01f) {
-        // Normalise accelerometer measurement; useAcc is true when all smoothed acc axes are within 20% of 1G
+    if (accWeight > 0.001f && recipAccNorm > 0.01f) {
+        // Normalise accelerometer measurement
         recipAccNorm = invSqrt(recipAccNorm);
 
         ax *= recipAccNorm;
@@ -200,30 +222,39 @@ void imuMahonyAHRSupdate(float dt,
         az *= recipAccNorm;
 
         // Error is sum of cross product between estimated direction and measured direction of gravity
-        ex += (ay * rMat.m[2][2] - az * rMat.m[2][1]);
-        ey += (az * rMat.m[2][0] - ax * rMat.m[2][2]);
-        ez += (ax * rMat.m[2][1] - ay * rMat.m[2][0]);
+        exAcc = (ay * rMat.m[2][2] - az * rMat.m[2][1]);
+        eyAcc = (az * rMat.m[2][0] - ax * rMat.m[2][2]);
+        ezAcc = (ax * rMat.m[2][1] - ay * rMat.m[2][0]);
+    } else {
+        accWeight = 0.0f;
     }
 
-    // Compute and apply integral feedback if enabled
+    // Compute and apply integral feedback if enabled (INAV: accelerometer error only, weighted, limited)
     if (imuRuntimeConfig.imuDcmKi > 0.0f) {
         // Stop integrating if spinning beyond the certain limit
         if (spin_rate < DEGREES_TO_RADIANS(SPIN_RATE_LIMIT)) {
-            const float dcmKiGain = imuRuntimeConfig.imuDcmKi;
-            integralFBx += dcmKiGain * ex * dt;    // integral error scaled by Ki
-            integralFBy += dcmKiGain * ey * dt;
-            integralFBz += dcmKiGain * ez * dt;
+            const float dcmKiGain = imuRuntimeConfig.imuDcmKi * accWeight * dt;
+            integralFB[X] += dcmKiGain * exAcc;    // integral error scaled by Ki
+            integralFB[Y] += dcmKiGain * eyAcc;
+            integralFB[Z] += dcmKiGain * ezAcc;
         }
+        // Anti wind-up
+        const float iLimit = imuRuntimeConfig.imuDcmILimit;
+        integralFB[X] = constrainf(integralFB[X], -iLimit, iLimit);
+        integralFB[Y] = constrainf(integralFB[Y], -iLimit, iLimit);
+        integralFB[Z] = constrainf(integralFB[Z], -iLimit, iLimit);
     } else {
-        integralFBx = 0.0f;    // prevent integral windup
-        integralFBy = 0.0f;
-        integralFBz = 0.0f;
+        integralFB[X] = 0.0f;    // prevent integral windup
+        integralFB[Y] = 0.0f;
+        integralFB[Z] = 0.0f;
     }
 
+    imuAccWeight = accWeight;
+
     // Apply proportional and integral feedback
-    gx += dcmKpGain * ex + integralFBx;
-    gy += dcmKpGain * ey + integralFBy;
-    gz += dcmKpGain * ez + integralFBz;
+    gx += dcmKpGain * (ex + accWeight * exAcc) + integralFB[X];
+    gy += dcmKpGain * (ey + accWeight * eyAcc) + integralFB[Y];
+    gz += dcmKpGain * (ez + accWeight * ezAcc) + integralFB[Z];
 
     // Integrate rate of change of quaternion
     gx *= (0.5f * dt);
@@ -299,14 +330,7 @@ static float imuCalcKpGain(timeUs_t currentTimeUs, bool useAcc, float *gyroAvera
         stDisarmed
     } arState = stDisarmed;
 
-    static enum {
-		st1,
-		st2,
-		st3
-	} levelSt = st1;
-
     static timeUs_t stateTimeout;
-    static timeUs_t startTime;
 
     const bool armState = flags.ARMED;
 
@@ -346,38 +370,14 @@ static float imuCalcKpGain(timeUs_t currentTimeUs, bool useAcc, float *gyroAvera
             // Scale the kP to converge 10x faster when disarmed, ie 2.5
             return imuRuntimeConfig.imuDcmKp * 10.0f;
         }
-    } else {
-
-    	// My implementation
-    	if(flags.ANGLE_MODE || flags.HORIZON_MODE){
-
-        	switch (levelSt) {
-			default: // should not happen, safeguard only
-			case st1:
-				startTime = currentTimeUs;
-				levelSt = st2;
-				// high gain, 100x greater than normal, or 25, after quiet period
-				 return imuRuntimeConfig.imuDcmKp * 100.0f;
-			case st2:
-				if (cmpTimeUs(currentTimeUs, startTime) >= 1000000) {
-					levelSt = st3;
-					return imuRuntimeConfig.imuDcmKp;
-				}
-				else{
-					return imuRuntimeConfig.imuDcmKp * 100.0f;
-				}
-			case st3:
-				return imuRuntimeConfig.imuDcmKp;
-        	}
-    	}
-    	else{
-			// Betaflight
-			arState = stArmed;
-			levelSt = st1;
-			return imuRuntimeConfig.imuDcmKp;
-    	}
-    	return imuRuntimeConfig.imuDcmKp;
     }
+
+    /* While armed the gain is ALWAYS constant (same as Betaflight). Before, entering a level mode (ANGLE /
+     * HORIZON) applied 100x Kp for 1 s: in flight the accelerometer shows thrust + drag, not gravity
+     * (braking, turning, accelerating), so the estimate moved 10-25 degrees within seconds; the aircraft
+     * believed it was level while tilted and drifted. Fast convergence only while disarmed. */
+    arState = stArmed;
+    return imuRuntimeConfig.imuDcmKp;
 }
 
 #ifdef GPS_
@@ -504,14 +504,13 @@ static void imuDebug_GPS_RESCUE_HEADING(void)
 }
 #endif // defined(USE_MAG_) && defined(GPS__RESCUE)
 
-/*
-#if USE_MAG_ == true
+#if USE_MAG_ && NAVIGATION_
 // Calculate heading error derived from magnetometer
 // return value rotation around earth Z axis, pointing in directipon of smaller error, [rad/s]
 float imuCalcMagErr(void)
 {
     // Use measured magnetic field vector
-    vector3_t mag_bf = mag.magADC;
+    vector3_t mag_bf = {.x = mag.magADCf[X], .y = mag.magADCf[Y], .z = mag.magADCf[Z]};
     float magNormSquared = vector3NormSq(&mag_bf);
 
     if (magNormSquared > 0.01f) {
@@ -540,7 +539,7 @@ float imuCalcMagErr(void)
 }
 
 #endif
-*/
+
 #if defined(GPS_)
 static void imuComputeQuaternionFromRPY(quaternionProducts *quatProd, int16_t initialRoll, int16_t initialPitch, int16_t initialYaw)
 {
@@ -619,7 +618,7 @@ static void updateGpsHeadingUsable(float groundspeedGain, float imuCourseError, 
         gpsHeadingConfidence += fmaxf(groundspeedGain - fabsf(imuCourseError), 0.0f) * dt;
         // recenter at 2.5s time constant
         // TODO: intent is to match IMU time constant, approximately, but I don't exactly know how to do that
-        gpsHeadingConfidence -= 0.4 * dt * gpsHeadingConfidence;
+        gpsHeadingConfidence -= 0.4f * dt * gpsHeadingConfidence;
         // if we accumulate enough 'points' over time, the IMU probably is OK
         // will need to reaccumulate after a disarm (will be retained partly for very brief disarms)
         canUseGPSHeading = gpsHeadingConfidence > 2.0f;
@@ -655,19 +654,12 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
 			// *** magnetometer based error estimate ***
 			bool useMag = false;   // mag will suppress GPS correction
 			float magErr = 0;
-		/*
-		#if USE_MAG_ == true
-			if (sensors(SENSOR_MAG)
-				&& compassIsHealthy()
-		#ifdef GPS__RESCUE
-				&& !gpsRescueDisableMag()
-		#endif
-				) {
+		#if USE_MAG_ && NAVIGATION_
+			if (mag.is_mag_spi_init || mag.is_mag_i2c_init) {
 				useMag = true;
 				magErr = imuCalcMagErr();
 			}
 		#endif
-		*/
 
 		#if defined(USE_MAG_) && defined(GPS__RESCUE)
 			// fill in GPS rescue debug value (leftover from code refactoring)
@@ -716,10 +708,22 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
 				gyroAverage[axis] = gyroGetFilteredDownsampled(axis);
 			}
 
-			const bool useAcc = imuIsAccelerometerHealthy(); // all smoothed accADC values are within 10% of 1G
+			// Under horizontal acceleration the accelerometer does not show gravity: remove the GPS measured acceleration
+			float accComp[3];
+			CK_NAV_ESTIMATOR_GetAccelCompensation(accComp);
+
+			const bool useAcc = imuIsAccelerometerHealthy(); // for the disarmed fast convergence state machine (Betaflight)
+
+			// Accelerometer trust: how close the GPS compensated reading is to 1 g (INAV, bell curve)
+			const float gx_acc = acc.accADC.x - accComp[X];
+			const float gy_acc = acc.accADC.y - accComp[Y];
+			const float gz_acc = acc.accADC.z - accComp[Z];
+			const float accMagComp = sqrtf(sq(gx_acc) + sq(gy_acc) + sq(gz_acc)) * acc.acc_1G_rec;
+			const float accWeight = bellCurve(accMagComp - 1.0f, ACC_WEIGHT_NEARNESS);
+
 			imuMahonyAHRSupdate(dt,
 								DEGREES_TO_RADIANS(gyroAverage[X]), DEGREES_TO_RADIANS(gyroAverage[Y]), DEGREES_TO_RADIANS(gyroAverage[Z]),
-								useAcc, acc.accADC.x, acc.accADC.y, acc.accADC.z,
+								accWeight, gx_acc, gy_acc, gz_acc,
 								magErr, cogErr,
 								imuCalcKpGain(currentTimeUs, useAcc, gyroAverage));
 
@@ -901,4 +905,16 @@ bool isUpright(void)
 #else
     return true;
 #endif
+}
+
+// Log: accelerometer weight of the last IMU step (0..1)
+float imuGetAccWeight(void)
+{
+    return imuAccWeight;
+}
+
+// Log: estimated gyro bias correction (deg/s, body axes; the value added to the gyro)
+float imuGetGyroBiasCorrection(int axis)
+{
+    return RADIANS_TO_DEGREES(integralFB[axis]);
 }

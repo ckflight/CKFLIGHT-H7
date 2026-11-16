@@ -55,7 +55,7 @@ typedef struct{
 
     bool HardwareInit;
 
-    uint8_t rxArray[GYRO_READ_ARRAY_SIZE];
+    uint8_t rxArray[GYRO_READ_ARRAY_SIZE] GYRO_DMA_ALIGNED;   // H7: exactly one cache line (see CK_GYRO.h)
 
 
 }ICM20602_PARAMETERS_t;
@@ -252,7 +252,7 @@ void CK_ICM20602_ReadSensorRaw_DMA(void){
 	#if USE_H7 == 1
 	// Clean before tx operation when dcache is enabled
 	// Buffer is filled by cpu to cache so flush it to sram with cleandcache method for dma to send it to peripheral
-	SCB_CleanDCache_by_Addr((uint32_t*)icm20602.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+	SCB_CleanDCache_by_Addr((uint32_t*)icm20602.rxArray, GYRO_READ_ARRAY_SIZE);
 	#endif
 
 	// TX
@@ -316,7 +316,7 @@ void SENSOR_DMA_RX_Handler(void){
 		#if USE_H7 == 1
     	// Invalidate before rx operation when dcache is enabled
         // DMA is done so data is ready on sram send it to cache so cpu can use it.
-    	SCB_InvalidateDCache_by_Addr((uint32_t*)icm20602.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+    	SCB_InvalidateDCache_by_Addr((uint32_t*)icm20602.rxArray, GYRO_READ_ARRAY_SIZE);   // only the rxArray line
 		#endif
 
         // First byte is response of read reg data write
@@ -327,7 +327,9 @@ void SENSOR_DMA_RX_Handler(void){
 
         acc.accADCRaw[Z] = (int16_t)(icm20602.rxArray[5] << 8 | icm20602.rxArray[6]);
 
-        gyro.gyroacc_sensor_temperature = (float)((int16_t)(icm20602.rxArray[7] << 8 | icm20602.rxArray[8]) / 326.8 + 25.0f);
+        // 326.8f: without 'f' the constant is double and this 8 kHz interrupt did a double division
+        // (software emulated on F4). The result is stored as float, so the value is the same.
+        gyro.gyroacc_sensor_temperature = (float)((int16_t)(icm20602.rxArray[7] << 8 | icm20602.rxArray[8]) / 326.8f + 25.0f);
 
 		gyro.gyroADCRaw[X]  = (int16_t)(icm20602.rxArray[9] << 8 | icm20602.rxArray[10]);
 
@@ -346,7 +348,7 @@ float CK_ICM20602_ReadTempRaw(void){
 	CK_SPI_ReadRegisterMulti(0x41, SPI_ICM20602, GPIO_CS_ICM20602, CS_PIN_ICM20602, icm20602.rxArray, 2);
 
 	int16_t value2 = ((uint16_t )icm20602.rxArray[0]<<8) | (uint16_t )icm20602.rxArray[1];
-	return value2/326.8 + 25.0f;
+	return value2 / 326.8f + 25.0f;
 }
 
 bool CK_ICM20602_isGyroSensorInitialized(void){

@@ -28,6 +28,10 @@
 #define GPS_					1
 #define GPS_MODULE				GPS_UBLOX8
 
+// Navigation (CK_NAVIGATION): altitude hold, position hold, GPS rescue and landing on the pilot's
+// switch only. What is offered follows the sensors (GPS / barometer / magnetometer). 0 = compiled out.
+#define NAVIGATION_				1
+
 #define LOG_SPI_				0
 #define LOG_SDIO_				1
 #define LOG_FLASH_				0
@@ -117,9 +121,17 @@
  */
 #define GYRO_ORIENTATION_X_SIGN			1 		// -1, +1
 #define GYRO_ORIENTATION_Y_SIGN			1 		// -1, +1
-#define GYRO_ORIENTATION_Z_SIGN			-1 		// -1, +1
+#define GYRO_ORIENTATION_Z_SIGN			1 		// -1, +1  (was -1: see note below)
 #define GYRO_ORIENTATION_SWAP_XY		false 	// true or false
 
+/*
+ * Gyro Z used to be -1 only to get the right yaw direction in the PID loop. That put the gyro in a
+ * different frame than the accelerometer, so the IMU integrated yaw backwards: heading turned the wrong
+ * way and roll/pitch picked up an error in yawing turns (angle mode drift, wrong GPS heading).
+ * Now gyro and accelerometer share one right-handed frame (Betaflight convention, positive yaw =
+ * nose right) and the yaw direction is set where it belongs: RC yaw (CK_RC.c) and the mixer yaw
+ * column (CK_MIXER.c, Mixer_Signs3). The yaw command reaching the motors is exactly the same as before.
+ */
 #define ACC_ORIENTATION_X_SIGN			1 		// -1, +1
 #define ACC_ORIENTATION_Y_SIGN			1 		// -1, +1
 #define ACC_ORIENTATION_Z_SIGN			1 		// -1, +1

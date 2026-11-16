@@ -57,11 +57,11 @@ static float motorMixRange;
  */
 float Mixer_Signs[MAX_SUPPORTED_MOTORS][FLIGHT_DYNAMICS_INDEX_COUNT] = {
 
-		//ROLL   PITCH  YAW
-	    { 1.0f, -1.0f, -1.0f },          // Motor 1 Front Left
-		{-1.0f, -1.0f,  1.0f },          // Motor 2 Front Right
-	    {-1.0f,  1.0f, -1.0f },          // Motor 3 Rare Right
-	    { 1.0f,  1.0f,  1.0f }           // Motor 4 Rare Left
+		//ROLL   PITCH  YAW              // yaw column for gyro Z +1 (it was inverted for the old gyro Z -1)
+	    { 1.0f, -1.0f,  1.0f },          // Motor 1 Front Left
+		{-1.0f, -1.0f, -1.0f },          // Motor 2 Front Right
+	    {-1.0f,  1.0f,  1.0f },          // Motor 3 Rare Right
+	    { 1.0f,  1.0f, -1.0f }           // Motor 4 Rare Left
 
 };
 
@@ -75,11 +75,11 @@ float Mixer_Signs[MAX_SUPPORTED_MOTORS][FLIGHT_DYNAMICS_INDEX_COUNT] = {
  */
 float Mixer_Signs2[MAX_SUPPORTED_MOTORS][FLIGHT_DYNAMICS_INDEX_COUNT] = {
 
-		//ROLL   PITCH  YAW
-		{-1.0f,  1.0f, -1.0f },          // Motor 1 Rare Right
-		{-1.0f, -1.0f,  1.0f },          // Motor 2 Front Right
-		{ 1.0f,  1.0f,  1.0f },          // Motor 3 Rare Left
-		{ 1.0f, -1.0f, -1.0f }           // Motor 4 Front Left
+		//ROLL   PITCH  YAW              // yaw column for gyro Z +1 (it was inverted for the old gyro Z -1)
+		{-1.0f,  1.0f,  1.0f },          // Motor 1 Rare Right
+		{-1.0f, -1.0f, -1.0f },          // Motor 2 Front Right
+		{ 1.0f,  1.0f, -1.0f },          // Motor 3 Rare Left
+		{ 1.0f, -1.0f,  1.0f }           // Motor 4 Front Left
 
 };
 
@@ -93,11 +93,11 @@ float Mixer_Signs2[MAX_SUPPORTED_MOTORS][FLIGHT_DYNAMICS_INDEX_COUNT] = {
  */
 float Mixer_Signs3[MAX_SUPPORTED_MOTORS][FLIGHT_DYNAMICS_INDEX_COUNT] = {
 
-		//ROLL   PITCH  YAW
-		{-1.0f,  1.0f,  1.0f },          // Motor 1 Rare Right
-		{-1.0f, -1.0f, -1.0f },          // Motor 2 Front Right
-		{ 1.0f,  1.0f, -1.0f },          // Motor 3 Rare Left
-		{ 1.0f, -1.0f,  1.0f }           // Motor 4 Front Left
+		//ROLL   PITCH  YAW              // yaw column for gyro Z +1 (it was inverted for the old gyro Z -1)
+		{-1.0f,  1.0f, -1.0f },          // Motor 1 Rare Right
+		{-1.0f, -1.0f,  1.0f },          // Motor 2 Front Right
+		{ 1.0f,  1.0f,  1.0f },          // Motor 3 Rare Left
+		{ 1.0f, -1.0f, -1.0f }           // Motor 4 Front Left
 };
 
 
@@ -448,6 +448,13 @@ void CK_MIXER_ApplyMixToMotors(void){
 
 		motorFinalResult[currentMotor] = motorOutput;
 
+	}
+
+	// Motor output guard tripped (main loop sent no frame for >250 ms, motors are at STOP): DISARM.
+	// Re-arming needs the arm switch to be cycled (CK_RECEIVER arm edge).
+	if(CK_ESC_OutputGuardTripped()){
+		overwrite_flags.FORCE_TO_DISARM = true;
+		flags.ARMED = false;
 	}
 
 	// DISARM HANDLE
