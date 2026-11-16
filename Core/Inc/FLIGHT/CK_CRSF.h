@@ -24,6 +24,11 @@ typedef enum{
 #define CRSF_SNR_MIN (-30)
 #define CRSF_SNR_MAX 20
 
+// Real link loss (debounced): fresh link statistics with LQ <= CRSF_LQ_LOST for at least CRSF_LINK_DEGRADED_MS
+#define CRSF_LQ_LOST				5u		// %
+#define CRSF_LINK_DEGRADED_MS		1000u
+#define CRSF_LINK_STATS_FRESH_MS	500u
+
 void CK_CRSF_Init(CRSF_Method method);
 
 bool CK_CRSF_Update(uint32_t current_time);
@@ -51,5 +56,10 @@ int16_t CK_CRSF_GetRSSI_dBm(void);
 CRSF_RFMode CK_CRSF_GetRFMode(void);
 
 uint8_t CK_CRSF_GetLinkQuality(void);
+
+bool CK_CRSF_LinkDegraded(uint32_t now_ms);
+
+// Diagnostics (printer 'x'): valid frames, CRC errors and UART overruns since power-up
+void CK_CRSF_GetStats(uint32_t* frames_ok, uint32_t* crc_errors, uint32_t* uart_overruns);
 
 #endif /* INC_FLIGHT_CK_CRSF_H_ */

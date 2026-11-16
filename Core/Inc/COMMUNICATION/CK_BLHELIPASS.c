@@ -6,6 +6,8 @@
 #include "COMMUNICATION/CK_PRINTER.h"
 #include "COMMUNICATION/USBD_CDC/CK_USBD_INTERFACE.h"
 
+#include "FLIGHT/CK_ESC.h"
+
 #include "stdio.h"
 
 
@@ -300,7 +302,7 @@ void CK_BLHELIPASS_ApplyUSBCommand(void){
 		esc_command = '.';
 		CK_PRINTER_PrintlnString("RESTARTING THE SYSTEM");
 		CK_TIME_DelayMilliSec(1000);
-		NVIC_SystemReset();
+		CK_ESC_SystemReset();       // STOP to the motors first, then reset
 	}
 
 	else{

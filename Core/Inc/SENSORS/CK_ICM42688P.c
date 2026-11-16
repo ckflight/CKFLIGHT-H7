@@ -98,7 +98,7 @@ typedef struct{
 
     bool HardwareInit;
 
-    uint8_t rxArray[GYRO_READ_ARRAY_SIZE];
+    uint8_t rxArray[GYRO_READ_ARRAY_SIZE] GYRO_DMA_ALIGNED;   // H7: exactly one cache line (see CK_GYRO.h)
 
 }ICM42688P_PARAMETERS_t;
 
@@ -301,7 +301,7 @@ void CK_ICM42688P_ReadSensorRaw_DMA(void){
 	#if USE_H7 == 1
 	// Clean before tx operation when dcache is enabled
 	// Buffer is filled by cpu to cache so flush it to sram with cleandcache method for dma to send it to peripheral
-	SCB_CleanDCache_by_Addr((uint32_t*)icm42688p.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+	SCB_CleanDCache_by_Addr((uint32_t*)icm42688p.rxArray, GYRO_READ_ARRAY_SIZE);
 	#endif
 
 	// TX
@@ -363,7 +363,7 @@ void SENSOR_DMA_RX_Handler(void){
 
     	// Invalidate before rx operation when dcache is enabled
         // DMA is done so data is ready on sram send it to cache so cpu can use it.
-    	SCB_InvalidateDCache_by_Addr((uint32_t*)icm42688p.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+    	SCB_InvalidateDCache_by_Addr((uint32_t*)icm42688p.rxArray, GYRO_READ_ARRAY_SIZE);   // only the rxArray line
 
         // First byte is response of read reg data write
         acc.accADCRaw[X_AXIS] = (int16_t)(icm42688p.rxArray[3] << 8 | icm42688p.rxArray[4]);

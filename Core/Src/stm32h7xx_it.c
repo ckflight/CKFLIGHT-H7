@@ -46,6 +46,7 @@
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+void CK_ESC_EmergencyStop(void);   /* FLIGHT/CK_ESC.c: STOP to the motors without interrupts */
 
 /* USER CODE END PFP */
 
@@ -72,6 +73,7 @@ void NMI_Handler(void)
 
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
+  CK_ESC_EmergencyStop();
   while (1)
   {
   }
@@ -84,6 +86,7 @@ void NMI_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
+  CK_ESC_EmergencyStop();
 
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
@@ -99,6 +102,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
+  CK_ESC_EmergencyStop();
 
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)

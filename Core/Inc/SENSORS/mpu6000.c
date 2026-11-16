@@ -99,7 +99,7 @@ typedef struct{
 
     bool HardwareInit;
 
-    uint8_t rxArray[GYRO_READ_ARRAY_SIZE];
+    uint8_t rxArray[GYRO_READ_ARRAY_SIZE] GYRO_DMA_ALIGNED;   // H7: exactly one cache line (see CK_GYRO.h)
 
 
 }MPU6000_PARAMETERS_t;
@@ -259,7 +259,7 @@ void CK_MPU6000_ReadSensorRaw_DMA(void){
 	#if USE_H7 == 1
 	// Clean before tx operation when dcache is enabled
 	// Buffer is filled by cpu to cache so flush it to sram with cleandcache method for dma to send it to peripheral
-	SCB_CleanDCache_by_Addr((uint32_t*)mpu6000.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+	SCB_CleanDCache_by_Addr((uint32_t*)mpu6000.rxArray, GYRO_READ_ARRAY_SIZE);
 	#endif
 
 	// TX
@@ -323,7 +323,7 @@ void SENSOR_DMA_RX_Handler(void){
 		#if USE_H7 == 1
     	// Invalidate before rx operation when dcache is enabled
         // DMA is done so data is ready on sram send it to cache so cpu can use it.
-    	SCB_InvalidateDCache_by_Addr((uint32_t*)mpu6000.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+    	SCB_InvalidateDCache_by_Addr((uint32_t*)mpu6000.rxArray, GYRO_READ_ARRAY_SIZE);   // only the rxArray line
 		#endif
 
         // First byte is response of read reg data write
@@ -353,7 +353,7 @@ float CK_MPU6000_ReadTempRaw(void){
 	CK_SPI_ReadRegisterMulti(MPU6000_TEMP_OUT_H, SPI_MPU6000, GPIO_CS_MPU6000, CS_PIN_MPU6000, mpu6000.rxArray, 2);
 
 	int16_t value2 = ((uint16_t )mpu6000.rxArray[0]<<8) | (uint16_t )mpu6000.rxArray[1];
-	return value2/326.8 + 25;
+	return value2 / 326.8f + 25.0f;
 }
 
 bool CK_MPU6000_isGyroSensorInitialized(void){

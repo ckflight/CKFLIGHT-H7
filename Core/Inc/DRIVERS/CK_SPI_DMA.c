@@ -193,14 +193,19 @@ void CK_SPI_DMA_Disable(DMA_Stream_TypeDef* dma_stream){
 
 uint8_t CK_SPI_DMA_IsTransferComplete(DMA_TypeDef* dma, DMA_Stream_TypeDef* dma_stream){
 
-	if(dma->LISR & DMA_STREAM0_TCIF)return 1;
-	if(dma->LISR & DMA_STREAM1_TCIF)return 1;
-	if(dma->LISR & DMA_STREAM2_TCIF)return 1;
-	if(dma->LISR & DMA_STREAM3_TCIF)return 1;
-	if(dma->HISR & DMA_STREAM4_TCIF)return 1;
-	if(dma->HISR & DMA_STREAM5_TCIF)return 1;
-	if(dma->HISR & DMA_STREAM6_TCIF)return 1;
-	if(dma->HISR & DMA_STREAM7_TCIF)return 1;
+	/*
+	 * Only the TC flag of the REQUESTED stream. Before, the TC flag of ANY stream on the same DMA
+	 * returned 1: a polling loop could see the DShot or gyro DMA TC and continue before its own
+	 * transfer had finished. Interrupt handlers behave the same (they are raised by their own TC).
+	 */
+	if(dma_stream == DMA1_Stream0 || dma_stream == DMA2_Stream0) return (dma->LISR & (DMA_STREAM0_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream1 || dma_stream == DMA2_Stream1) return (dma->LISR & (DMA_STREAM1_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream2 || dma_stream == DMA2_Stream2) return (dma->LISR & (DMA_STREAM2_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream3 || dma_stream == DMA2_Stream3) return (dma->LISR & (DMA_STREAM3_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream4 || dma_stream == DMA2_Stream4) return (dma->HISR & (DMA_STREAM4_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream5 || dma_stream == DMA2_Stream5) return (dma->HISR & (DMA_STREAM5_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream6 || dma_stream == DMA2_Stream6) return (dma->HISR & (DMA_STREAM6_TCIF)) != 0;
+	if(dma_stream == DMA1_Stream7 || dma_stream == DMA2_Stream7) return (dma->HISR & (DMA_STREAM7_TCIF)) != 0;
 
     return 0;
 }

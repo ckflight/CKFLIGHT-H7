@@ -11,6 +11,7 @@
 #define PWM_RANGE_MIN_CHECK		1020
 
 #define RECEIVER_MIN_THROTTLE	1100
+#define ARM_MAX_THROTTLE		1100	// throttle must be below this when the arm switch is turned on
 #define RECEIVER_MAX_THROTTLE	2000
 
 #define RECEIVER_PWM_MARGINE	50
@@ -106,6 +107,15 @@ typedef enum{
 
 }CK_RC_Mode;
 
+// Why the last arm request was refused (printer 'x')
+typedef enum{
+
+	CK_ARM_BLOCK_NONE = 0,
+	CK_ARM_BLOCK_SWITCH,		// arm switch was already on (power-up, failsafe, guard): turn it off first
+	CK_ARM_BLOCK_THROTTLE		// throttle was not low when the switch was turned on
+
+}CK_ARM_BLOCK_e;
+
 extern RECEIVER_FLAGS_t flags;
 
 extern OVERWRITE_FLAGS_t overwrite_flags;
@@ -137,6 +147,12 @@ uint32_t CK_RECEIVER_GetInvalidDataCounter(void);
 bool CK_RECEIVER_GetAndScaleChannels(void);
 
 void CK_RECEIVER_CheckAndSetFlags(void);
+
+void CK_RECEIVER_UpdateFailsafe(uint32_t now_ms);
+
+CK_ARM_BLOCK_e CK_RECEIVER_GetArmBlockReason(void);
+
+uint32_t CK_RECEIVER_GetFailsafeDrops(void);
 
 uint8_t CK_RECEIVER_isArmed(void);
 

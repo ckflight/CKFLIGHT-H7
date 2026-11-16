@@ -71,7 +71,10 @@ uint16_t _payload_size;
 uint16_t _payload_counter;
 uint8_t _buffer[92];
 uint16_t _receive_error;
-bool gps_dataReceived;
+/* volatile: written by the GPS UART interrupt (CK_GPS_UBXNewByte), read by the main code. Without it,
+ * -O2 turned the wait loop in CK_GPS_SaveDestinationLocationAndStartHeight() into "branch to itself
+ * while the flag is 0" (an endless loop, seen in the compiled code). */
+volatile bool gps_dataReceived;
 
 DEBUG_TIME_t gps_debug;
 
@@ -250,7 +253,7 @@ void Kalman_Update(KalmanFilter2D* kf, int32_t meas_lat_e7, int32_t meas_lon_e7)
 
     // Invert S (2x2)
     float det = S[0][0]*S[1][1] - S[0][1]*S[1][0];
-    if (fabs(det) < 1e-6f) return;
+    if (fabsf(det) < 1e-6f) return;
     float invDet = 1.0f / det;
     float S_inv[2][2] = {
         {  S[1][1] * invDet, -S[0][1] * invDet },
@@ -380,8 +383,8 @@ void CK_GPS_Update(void){
 	        	}
 	        }
 
-	        gps.current_lon_degree_f = gps.current_lon / 10000000.0;
-	        gps.current_lat_degree_f = gps.current_lat / 10000000.0;
+	        gps.current_lon_degree_f = (float)gps.current_lon * 1e-7f;
+	        gps.current_lat_degree_f = (float)gps.current_lat * 1e-7f;
 
 
 	        #if defined(COMPUTE_DMS)
@@ -610,7 +613,12 @@ void CK_GPS_DecodePacket(void){
         pvt.nav_pvt_lat     = (int32_t)((_buffer[31]<<24)+(_buffer[30]<<16)+(_buffer[29]<<8)+_buffer[28]);
     }
 
-
+    // For the navigation estimator (same offsets on u-blox 7 and 8)
+    pvt.nav_pvt_iTOW = ((uint32_t)_buffer[3]<<24)+((uint32_t)_buffer[2]<<16)+((uint32_t)_buffer[1]<<8)+_buffer[0];
+    pvt.nav_pvt_hAcc = ((uint32_t)_buffer[43]<<24)+((uint32_t)_buffer[42]<<16)+((uint32_t)_buffer[41]<<8)+_buffer[40];
+    pvt.nav_pvt_ve1N = (int32_t)(((uint32_t)_buffer[51]<<24)+((uint32_t)_buffer[50]<<16)+((uint32_t)_buffer[49]<<8)+_buffer[48]);
+    pvt.nav_pvt_ve1E = (int32_t)(((uint32_t)_buffer[55]<<24)+((uint32_t)_buffer[54]<<16)+((uint32_t)_buffer[53]<<8)+_buffer[52]);
+    pvt.nav_pvt_ve1D = (int32_t)(((uint32_t)_buffer[59]<<24)+((uint32_t)_buffer[58]<<16)+((uint32_t)_buffer[57]<<8)+_buffer[56]);
 }
 
 /*
@@ -711,49 +719,43 @@ void CK_GPS_CalculateDistanceAndHeading(float currentLat1, float currentLon1, fl
 
 }
 
-#define EARTH_RADIUS_CM 637100000.0f // Earth's radius in centimeters
-#define DEG_TO_RAD (3.14159265359f / 180.0f)
-
-// Converts E7 coordinates to radians (as double)
-static inline double e7_to_rad(int32_t coord_e7) {
-    return ((double)coord_e7) * 1e-7 * DEG_TO_RAD;
-}
-
-// Calculates distance and heading using E7 coords
+/*
+ * Distance (cm) and bearing (0.01 degree, clockwise from north) between two E7 positions.
+ *
+ * Same method as Betaflight GPS_distance_cm_bearing / INAV (equirectangular approximation), float only:
+ * the coordinate DIFFERENCE is taken as an integer (1e-7 degree) first and converted to float after.
+ * Converting absolute coordinates to float and subtracting lost precision (metres), which is why a
+ * double haversine was used before. With an integer difference the 24 bit float mantissa carries the
+ * full 1e-7 degree (~1.1 cm) up to ~1.7 km, relative error < 1e-7 further away. At flight distances
+ * (< 10 km) the difference to haversine is < 0.1 %.
+ *
+ * The old version used double sin/cos/atan2/sqrt: on F4 (single precision FPU only) all of it was
+ * software emulated and the loop with a GPS packet overran. H7 uses the same code.
+ */
 void CK_GPS_CalculateDistanceAndHeading_E7(int32_t currentLat_e7, int32_t currentLon_e7,
                                            int32_t destLat_e7, int32_t destLon_e7,
                                            uint32_t* dist_cm, int32_t* bearing_100deg) {
-    // Convert to radians (high precision)
-    double lat1 = e7_to_rad(currentLat_e7);
-    double lon1 = e7_to_rad(currentLon_e7);
-    double lat2 = e7_to_rad(destLat_e7);
-    double lon2 = e7_to_rad(destLon_e7);
 
-    // Haversine Formula for distance
-    double dLat = lat2 - lat1;
-    double dLon = lon2 - lon1;
+    /* Longitude difference the short way across the 180 meridian (computed in 64 bit, no int32 overflow) */
+    int64_t dlon = (int64_t)destLon_e7 - (int64_t)currentLon_e7;
+    if (dlon > 1800000000LL) {
+        dlon -= 3600000000LL;
+    } else if (dlon < -1800000000LL) {
+        dlon += 3600000000LL;
+    }
+    const int32_t dlat = (int32_t)((int64_t)destLat_e7 - (int64_t)currentLat_e7);   /* |latitude| <= 90 deg: fits */
 
-    double a = sin(dLat / 2.0) * sin(dLat / 2.0) +
-               cos(lat1) * cos(lat2) *
-               sin(dLon / 2.0) * sin(dLon / 2.0);
+    const float cos_lat  = cos_approx((float)currentLat_e7 * (1e-7f * RAD));
+    const float north_cm = (float)dlat * EARTH_ANGLE_TO_CM;
+    const float east_cm  = (float)(int32_t)dlon * EARTH_ANGLE_TO_CM * cos_lat;
 
-    double c = 2.0 * atan2(sqrt(a), sqrt(1 - a));
-    double distance_cm = EARTH_RADIUS_CM * c;
+    const float dist = sqrtf(north_cm * north_cm + east_cm * east_cm);
+    *dist_cm = (dist < 4294967040.0f) ? (uint32_t)dist : UINT32_MAX;
 
-    // Compute bearing
-    double y = sin(dLon) * cos(lat2);
-    double x = cos(lat1) * sin(lat2) -
-               sin(lat1) * cos(lat2) * cos(dLon);
-    double initial_bearing_rad = atan2(y, x);
-
-    int32_t bearing = (int32_t)(initial_bearing_rad * (180.0 / 3.14159265359) * 100.0); // convert to degrees * 100
-
+    int32_t bearing = (int32_t)lrintf(atan2_approx(east_cm, north_cm) * (18000.0f / M_PIf));   /* 0.01 derece */
     if (bearing < 0) {
         bearing += 36000;
     }
-
-    // Output results
-    *dist_cm = (uint32_t)(distance_cm);
     *bearing_100deg = bearing;
 }
 
@@ -901,6 +903,19 @@ void UART7_IRQHandler(void){
             CK_CIRCULARBUFFER_BufferWrite(&gps_cb, rxData);
         }
     }
+
+    // ORE left set without RXNE re-triggers the interrupt forever (interrupt storm): clear it.
+    // Never runs in normal operation. Details: CK_CRSF.c UART interrupt.
+	#if USE_F4 == 1
+    else if(FLIGHT_GPS_UART->SR & USART_SR_ORE){
+    	(void)FLIGHT_GPS_UART->DR;           // F4: reading SR + DR clears ORE
+    }
+	#endif
+	#if USE_H7 == 1
+    else if(FLIGHT_GPS_UART->ISR & USART_ISR_ORE){
+    	FLIGHT_GPS_UART->ICR = USART_ICR_ORECF;  // H7: sadece ICR ile temizlenir
+    }
+	#endif
 }
 
 #endif

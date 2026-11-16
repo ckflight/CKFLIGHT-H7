@@ -667,7 +667,7 @@ void CK_MAGNETO_PerformCalibration(void){
 	// Initialize max min values at reverse max values
 	for(int axis = X; axis < XYZ_AXIS_COUNT; axis++){
 
-		mag.magADCMin[axis] = 32768;
+		mag.magADCMin[axis] = 32767;   // int16 max (32768 wrapped to -32768 and the minimum never updated)
 		mag.magADCMax[axis] = -32768;
 	}
 
@@ -780,7 +780,7 @@ void CK_MAGNETO_CalculateHeading(float mx, float my, float mz){
 		// Magnetic declination: 5° 41' EAST (POSITIVE);  1 degreee = 0.0174532925 radians
 
 		#define DEC_ANGLE 0.099
-		heading = atan2(magY, magX);
+		heading = atan2f(magY, magX);
 
 #if defined(CK_BOARD) || defined(CK_BOARD2) || defined(CK_BOARD4)
 		heading -= DEC_ANGLE;

@@ -168,7 +168,8 @@ circularBuffer_t crsf_cb;
 
 CRSF_Method crsf_method;
 
-bool crsf_dataReceived = false;
+// volatile: written by the UART interrupt (CK_CRSF_NewByte2), read and cleared by the main loop
+volatile bool crsf_dataReceived = false;
 
 uint8_t crsf_frame_ofs = 0;
 
@@ -178,11 +179,74 @@ uint32_t crsfChannelData[CRSF_MAX_CHANNEL];
 
 USART_TypeDef* CK_CRSF_UART;
 
-CRSF_FRAME crsf_frame;
+CRSF_FRAME crsf_frame;          // ISR working buffer: only the UART interrupt writes it, byte by byte
+
+/*
+ * DOUBLE BUFFER (same idea as Betaflight crsf.c)
+ *
+ *  crsf_frame        : working buffer filled byte by byte by the UART interrupt.
+ *  crsf_frame_ready  : when the last byte (CRC) arrives the ISR copies the finished frame here.
+ *  crsf_frame_main   : the main loop takes crsf_frame_ready here; CRC check and decode run on this copy.
+ *
+ * Why: at 420k baud a frame lasts 619 us, at 1 kHz the gap between frames is ~381 us. The main loop
+ * used to run the CRC directly on crsf_frame; if the next frame had already started, the payload was
+ * overwritten -> CRC error -> frame dropped. Loop and receiver clocks are almost synchronous, so the
+ * phase could stay in this bad window for a long time and no valid frame arrived for seconds.
+ * Now the main loop has a whole frame time (~1 ms) to take the frame.
+ *
+ * crsf_ready_seq (seqlock): the ISR increments it before and after the copy. The main loop reads it
+ * before and after its own copy and copies again if it changed. No lock, interrupts stay enabled,
+ * the ISR never waits.
+ */
+static CRSF_FRAME crsf_frame_ready;
+static CRSF_FRAME crsf_frame_main;
+static volatile uint32_t crsf_ready_seq = 0;
+
+// Compiler barrier: keeps memory accesses on their side of this point.
+// Enough between an ISR and the main loop on a single core.
+#ifndef CRSF_COMPILER_BARRIER
+#define CRSF_COMPILER_BARRIER()     __asm volatile ("" ::: "memory")
+#endif
+
+// Diagnostic counters (count only, never change behaviour). Read with CK_CRSF_GetStats().
+static volatile uint32_t crsf_stat_frames_ok = 0;
+static volatile uint32_t crsf_stat_crc_errors = 0;
+static volatile uint32_t crsf_stat_uart_overruns = 0;
+
+// ISR context: publish the finished frame
+static inline void CK_CRSF_PublishFrame(void){
+
+	crsf_ready_seq++;                   // odd: being written
+	CRSF_COMPILER_BARRIER();
+	crsf_frame_ready = crsf_frame;
+	CRSF_COMPILER_BARRIER();
+	crsf_ready_seq++;                   // even: ready
+
+	crsf_dataReceived = true;
+}
+
+// Main loop context: take the last finished frame into crsf_frame_main. False if no consistent copy.
+static bool CK_CRSF_TakeFrame(void){
+
+	uint32_t seq_before;
+	uint32_t seq_after;
+	uint8_t tries = 0;
+
+	do{
+		seq_before = crsf_ready_seq;
+		CRSF_COMPILER_BARRIER();
+		crsf_frame_main = crsf_frame_ready;
+		CRSF_COMPILER_BARRIER();
+		seq_after = crsf_ready_seq;
+	}while((seq_before != seq_after || (seq_before & 1u)) && ++tries < 4u);
+
+	return (seq_before == seq_after) && ((seq_before & 1u) == 0u);
+}
+
 uint8_t crsf_payload_counter = 0;
 uint8_t crsf_state = 0;
 
-uint8_t crsf_dma_buffer[32];
+uint8_t crsf_dma_buffer[32] __attribute__((aligned(32)));   // one cache line (only used with USE_DMA_CRSF)
 
 void CK_CRSF_Init(CRSF_Method method){
 
@@ -257,29 +321,35 @@ bool CK_CRSF_Update(uint32_t current_time){
 
     	if(crsf_dataReceived){
 
-    		uint8_t crc = 0;
+    		// Clear the flag first: if a new frame completes while this one is processed the flag
+    		// rises again and it is handled in the next loop (it used to be cleared after decode and lost).
+    		crsf_dataReceived = false;
 
-    		crc = crc8_dvb_s2(0, crsf_frame.type);
+    		if(CK_CRSF_TakeFrame()){
 
-			for (uint8_t i = 0; i < crsf_frame.length - 2; i++){
-				crc = crc8_dvb_s2(crc, crsf_frame.payload[i]);
-			}
+	    		uint8_t crc = crc8_dvb_s2(0, crsf_frame_main.type);
 
-			if(crc == crsf_frame.crc){
+				for (uint8_t i = 0; i < crsf_frame_main.length - 2; i++){
+					crc = crc8_dvb_s2(crc, crsf_frame_main.payload[i]);
+				}
 
-				CK_CRSF_Decode();
+				if(crc == crsf_frame_main.crc){
 
-				isNewData = true;
+					CK_CRSF_Decode();
 
-				#if SCOPE_CHECK_CRSF_PACKET == 1
-				CK_GPIO_TogglePin(SCOPE_CHECK_GPIO, SCOPE_CHECK_GPIO_PIN);
-				#endif
+					isNewData = true;
 
-			}
-			else{
-				// Since decode is not called make it false here
-				crsf_dataReceived = false;
-			}
+					crsf_stat_frames_ok++;
+
+					#if SCOPE_CHECK_CRSF_PACKET == 1
+					CK_GPIO_TogglePin(SCOPE_CHECK_GPIO, SCOPE_CHECK_GPIO_PIN);
+					#endif
+
+				}
+				else{
+					crsf_stat_crc_errors++;
+				}
+    		}
 
         }
 
@@ -295,8 +365,12 @@ bool CK_CRSF_Update(uint32_t current_time){
 
             if(crsf_dataReceived){
 
-            	CK_CRSF_Decode();
-            	isNewData = true;
+            	crsf_dataReceived = false;
+
+            	if(CK_CRSF_TakeFrame()){
+            		CK_CRSF_Decode();
+            		isNewData = true;
+            	}
             }
 
         }
@@ -384,7 +458,7 @@ void CK_CRSF_NewByte(uint8_t data){
 			return;
 		}
 
-		crsf_dataReceived = true;
+		CK_CRSF_PublishFrame();
 
 	}
 
@@ -449,7 +523,7 @@ void CK_CRSF_NewByte2(uint8_t data){
 
     		crsf_frame.crc = crc;
 
-    		crsf_dataReceived = true;
+    		CK_CRSF_PublishFrame();     // hand the finished frame to the main loop (double buffer)
 
     		crsf_state = 0;
 
@@ -495,7 +569,7 @@ void CK_CRSF_NewByte2(uint8_t data){
 
 void CK_CRSF_Decode(void){
 
-    switch(crsf_frame.type){
+    switch(crsf_frame_main.type){
 
         case CRSF_FRAMETYPE_RC_CHANNELS_PACKED:
 
@@ -523,8 +597,6 @@ void CK_CRSF_Decode(void){
 
             break;
     }
-
-    crsf_dataReceived = false;
 }
 
 void CK_CRSF_Decode_11bit_Channels(void){
@@ -532,7 +604,7 @@ void CK_CRSF_Decode_11bit_Channels(void){
 	// use ordinary RC frame structure (0x16)
 	// scale factors defined by TBS - TICKS_TO_US(x) ((x) * 5 / 8 + 880)
 
-	const crsfPayloadRcChannelsPacked_t* const rcChannels = (crsfPayloadRcChannelsPacked_t*)&crsf_frame.payload;
+	const crsfPayloadRcChannelsPacked_t* const rcChannels = (crsfPayloadRcChannelsPacked_t*)&crsf_frame_main.payload;
 
 	crsfChannelData[0] = (rcChannels->chan0 * 5) / 8 + 880;
 	crsfChannelData[1] = (rcChannels->chan1 * 5) / 8 + 880;
@@ -553,9 +625,33 @@ void CK_CRSF_Decode_11bit_Channels(void){
 
 }
 
+static uint32_t crsfLinkStatsMs = 0;      // time of the last valid (CRC checked) link statistics frame
+static uint32_t crsfDegradedSinceMs = 0;
+
+/*
+ * Real link loss, debounced: fresh link statistics show LQ <= CRSF_LQ_LOST for at least
+ * CRSF_LINK_DEGRADED_MS. A single low RSSI reading or one bad statistics frame never triggers it.
+ * (Frames that stop completely are caught by the receiver timeout in CK_RECEIVER.)
+ */
+bool CK_CRSF_LinkDegraded(uint32_t now_ms){
+
+	const bool fresh = crsfLinkStatsMs != 0 && (now_ms - crsfLinkStatsMs) < CRSF_LINK_STATS_FRESH_MS;
+	const bool bad = fresh && crsfLinkStatus.link_quality <= CRSF_LQ_LOST;
+
+	if(!bad){
+		crsfDegradedSinceMs = 0;
+		return false;
+	}
+	if(crsfDegradedSinceMs == 0){
+		crsfDegradedSinceMs = now_ms ? now_ms : 1u;
+		return false;
+	}
+	return (now_ms - crsfDegradedSinceMs) >= CRSF_LINK_DEGRADED_MS;
+}
+
 void CK_CRSF_Decode_LinkStatusFrame(void){
 
-	const crsfPayloadLinkStatisticsFrame_t* link = (const crsfPayloadLinkStatisticsFrame_t*)&crsf_frame.payload;
+	const crsfPayloadLinkStatisticsFrame_t* link = (const crsfPayloadLinkStatisticsFrame_t*)&crsf_frame_main.payload;
 	uint8_t rssi_dbm;
 
 	if (link->active_antenna == 0) {
@@ -568,6 +664,7 @@ void CK_CRSF_Decode_LinkStatusFrame(void){
 	crsfLinkStatus.rssi_dbm = -1 * rssi_dbm;
 	crsfLinkStatus.rf_mode = MIN(link->rf_mode, 3U);
 	crsfLinkStatus.link_quality = link->uplink_status;
+	crsfLinkStatsMs = CK_TIME_GetMilliSec();
 }
 
 int CK_CRSF_GetChannelRaw(int channel){
@@ -590,6 +687,12 @@ CRSF_RFMode CK_CRSF_GetRFMode(void){
 
 uint8_t CK_CRSF_GetLinkQuality(void){
 	return crsfLinkStatus.link_quality;
+}
+
+void CK_CRSF_GetStats(uint32_t* frames_ok, uint32_t* crc_errors, uint32_t* uart_overruns){
+	*frames_ok     = crsf_stat_frames_ok;
+	*crc_errors    = crsf_stat_crc_errors;
+	*uart_overruns = crsf_stat_uart_overruns;
 }
 
 #if CRSF_
@@ -621,11 +724,19 @@ void USART6_IRQHandler(void){
 #endif
 
 	#if USE_H7 == 1
-	if(CK_CRSF_UART->ISR & CK_USART_SR_RXNE){
+	const uint32_t crsf_isr = CK_CRSF_UART->ISR;
+	if(crsf_isr & USART_ISR_ORE){
+		crsf_stat_uart_overruns++;      // a byte was lost (RDR not read in time)
+	}
+	if(crsf_isr & CK_USART_SR_RXNE){
 	#endif
 
 	#if USE_F4 == 1
-	if(CK_CRSF_UART->SR & CK_USART_SR_RXNE){
+	const uint32_t crsf_sr = CK_CRSF_UART->SR;
+	if(crsf_sr & USART_SR_ORE){
+		crsf_stat_uart_overruns++;      // a byte was lost; reading SR then DR clears ORE
+	}
+	if(crsf_sr & CK_USART_SR_RXNE){
 	#endif
 
 		#if USE_H7 == 1
@@ -654,6 +765,26 @@ void USART6_IRQHandler(void){
 		}
 	}
 
+	/*
+	 * ORE can stay set without RXNE: if a new byte arrives after the flags were read and just before
+	 * the data register is read, ORE=1 and RXNE=0. RXNEIE also raises an interrupt for ORE; the RXNE
+	 * check above never clears it, so the interrupt would re-enter forever (interrupt storm -> the
+	 * main loop stops). This branch never runs in normal operation, it costs one compare.
+	 *   F4: ORE is cleared by "read SR + read DR" (SR was read above, DR here).
+	 *   H7: ORE is cleared only by ICR.ORECF.
+	 */
+	#if USE_F4 == 1
+	else if(crsf_sr & USART_SR_ORE){
+		(void)CK_CRSF_UART->DR;
+	}
+	#endif
+
+	#if USE_H7 == 1
+	else if(crsf_isr & USART_ISR_ORE){
+		CK_CRSF_UART->ICR = USART_ICR_ORECF;
+	}
+	#endif
+
 }
 #endif
 
@@ -676,7 +807,7 @@ void CRSF_DMA_Handler(void){
 		#if USE_H7 == 1
     	// Invalidate before rx operation when dcache is enabled
         // DMA is done so data is ready on sram send it to cache so cpu can use it.
-    	SCB_InvalidateDCache_by_Addr((uint32_t*)icm20602.rxArray, GYRO_READ_ARRAY_SIZE + 32);
+    	SCB_InvalidateDCache_by_Addr((uint32_t*)crsf_dma_buffer, sizeof(crsf_dma_buffer));   // its own buffer (was the gyro array)
 		#endif
 
 

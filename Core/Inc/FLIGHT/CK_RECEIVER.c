@@ -28,6 +28,21 @@
 
 #define NUM_OF_START_ARMING                 2
 
+/*
+ * Link loss (no autonomy in the light firmware: the response is DROP, the Betaflight default stage 2)
+ *
+ *   RX_SIGNAL_TIMEOUT_MS : no valid frame for this long = signal lost (Betaflight rx signal timeout).
+ *   RX_FAILSAFE_DELAY_MS : signal must stay lost this long before the motors are stopped (CKFLIGHT
+ *                          default 1.0 s). Short dropouts at range never disarm the aircraft.
+ *   CRSF link statistics : LQ <= 5 % for 1 s (CK_CRSF_LinkDegraded) also drops; this covers receivers
+ *                          configured to keep sending the last position.
+ *
+ * After a drop the aircraft stays disarmed until the arm switch is turned off, even if the link
+ * comes back. Re-arming then needs a new arm edge with throttle low.
+ */
+#define RX_SIGNAL_TIMEOUT_MS                100u
+#define RX_FAILSAFE_DELAY_MS                1000u
+
 GPIO_TypeDef* GPIOx = GPIOC;
 
 int startTime1, pulseReceived1;
@@ -57,6 +72,19 @@ DEBUG_TIME_t receiver_debug;
 static bool airmodeEnabled;
 static bool airmodeIsActivated;
 static bool throttleRaised = false;
+
+// Arming state
+static bool arm_request = false;            // arm switch position (hysteresis between the windows)
+static bool arm_prev = true;                // true at power-up: a switch already on is not an edge
+static bool arm_switch_reset = false;       // arming refused: the switch must be turned off first
+static CK_ARM_BLOCK_e arm_block_reason = CK_ARM_BLOCK_NONE;
+
+// Link loss state
+static uint32_t rx_last_frame_ms = 0;       // last valid frame (0 = none yet)
+static uint32_t rx_lost_since_ms = 0;
+static bool     rx_receiver_failsafe = false; // SBUS failsafe bit (receiver reports loss, delayed like a timeout)
+static bool     rx_link_degraded = false;     // CRSF LQ <= 5 % for 1 s (already debounced, acts at once)
+static uint32_t rx_failsafe_drops = 0;
 
 void CK_RECEIVER_Init(CK_RC_Mode rx_md){
 
@@ -252,6 +280,8 @@ void CK_RECEIVER_Update(uint32_t current_time){
 
         if(rxSignalReceivedValid){
 
+        	rx_last_frame_ms = CK_TIME_GetMilliSec();
+
     		// ProcessRx
 
         	updateRcRefreshRate(CK_TIME_GetMicroSec(), rxSignalReceivedValid);
@@ -317,6 +347,9 @@ void CK_RECEIVER_Update(uint32_t current_time){
         }
 
     }
+
+    // Runs every loop, also when no frame arrives (that is exactly the link loss case)
+    CK_RECEIVER_UpdateFailsafe(CK_TIME_GetMilliSec());
 
     #if defined(DEBUG_TIMING)
     receiver_debug.update_time = CK_TIME_GetMicroSec() - receiver_debug.start_time;
@@ -454,38 +487,64 @@ void CK_RECEIVER_CheckAndSetFlags(void){
 
 	if(rx_mode == RX_SBUS){
 
-		if(CK_SBUS_GetChannelRaw(SBUS_FAILSAFE_CHANNEL)){
-			flags.FAILSAFE = true;     // FAILSAFE ACTIVE
-		}
-		else{
-			flags.FAILSAFE = false;    // FAILSAFE INACTIVE
-		}
+		// Receiver reports its own failsafe (failsafe bit)
+		rx_receiver_failsafe = (CK_SBUS_GetChannelRaw(SBUS_FAILSAFE_CHANNEL) != 0);
 	}
 	else if(rx_mode == RX_CRSF){
 
-		if(CK_CRSF_GetRSSI_dBm() < (CRSF_RSSI_MIN + 10)){
-			flags.FAILSAFE = true;     // FAILSAFE ACTIVE
-		}
-		else{
-			flags.FAILSAFE = false;    // FAILSAFE INACTIVE
-		}
+		// A single RSSI reading used to trigger failsafe instantly. Now LQ must stay below 5 % for
+		// at least 1 s (CK_CRSF_LinkDegraded). Frames that stop completely are caught by the timeout.
+		rx_link_degraded = CK_CRSF_LinkDegraded(CK_TIME_GetMilliSec());
 	}
 
 
 	// ***************AUX1***************
 	// 2-WAY SWITHCH -> Idle(1000), End(2000)
 
-	// (aux < 1200) && (aux > 950)
+	// (aux < 1200) && (aux > 800)
     if((getRCDataRaw(AUX1) < (SWITCH_MIN_POSITION + SWITCH_POSITION_MARGIN)) && (getRCDataRaw(AUX1) > (SWITCH_MIN_POSITION - SWITCH_POSITION_MARGIN))){
-        flags.ARMED = false;       // DISARMED
+        arm_request          = false;  // DISARM
         receiver_aux.aux1	 = 1;
     }
 
-    // (aux > 1800) && (aux < 2050)
+    // (aux > 1800) && (aux < 2200)
     else if((getRCDataRaw(AUX1) > (SWITCH_MAX_POSITION - SWITCH_POSITION_MARGIN)) && (getRCDataRaw(AUX1) < (SWITCH_MAX_POSITION + SWITCH_POSITION_MARGIN))){
-	    flags.ARMED = true;        // ARMED
+	    arm_request          = true;   // ARM requested
 	    receiver_aux.aux1	 = 2;
 	}
+
+    /*
+     * ARM / DISARM (same rules as Betaflight)
+     *  - Switch off: always DISARM, also during failsafe. Disarming always wins.
+     *  - ARM only on the edge where the switch is turned on, and only with throttle low.
+     *    Switch already on at power-up, or turned on with throttle high: refused until the switch
+     *    is turned off and on again.
+     *  - Values between the switch windows keep the previous state (old behaviour).
+     */
+    if(!arm_request){
+        flags.ARMED = false;
+        arm_switch_reset = false;
+        overwrite_flags.FORCE_TO_DISARM = false;    // failsafe / output guard latch: released by the switch
+        arm_block_reason = CK_ARM_BLOCK_NONE;
+    }
+    else if(!flags.ARMED){
+        if(arm_switch_reset || arm_prev){
+            arm_switch_reset = true;                // switch was already on: cycle it
+            if(arm_block_reason == CK_ARM_BLOCK_NONE){
+                arm_block_reason = CK_ARM_BLOCK_SWITCH;
+            }
+        }
+        else if(getRCDataRaw(THROTTLE) >= ARM_MAX_THROTTLE){
+            arm_switch_reset = true;
+            arm_block_reason = CK_ARM_BLOCK_THROTTLE;
+        }
+        else{
+            flags.ARMED = true;
+            arm_block_reason = CK_ARM_BLOCK_NONE;
+        }
+    }
+    // CK_RECEIVER_WaitARM calls this in its loop as well, so the edge works during the start-up sequence too
+    arm_prev = arm_request;
 
 	// ***************AUX2***************
 	// 2-WAY SWITHCH -> Idle(1000), End(2000)
@@ -535,21 +594,18 @@ void CK_RECEIVER_CheckAndSetFlags(void){
 
 	// (aux < 1200) && (aux > 950)
 	if((getRCDataRaw(AUX4) < (SWITCH_MIN_POSITION + SWITCH_POSITION_MARGIN)) && (getRCDataRaw(AUX4) > (SWITCH_MIN_POSITION - SWITCH_POSITION_MARGIN))){
-		flags.FAILSAFE  = false;
 		flags.MAG_HOLD  	 = false;
 		receiver_aux.aux4	 = 1;
 	}
 
 	// (aux < 1600) && (aux > 1400)
 	else if((getRCDataRaw(AUX4) < (SWITCH_MID_POSITION + (SWITCH_POSITION_MARGIN/2))) && (getRCDataRaw(AUX4) > (SWITCH_MID_POSITION - (SWITCH_POSITION_MARGIN/2)))){
-		flags.FAILSAFE  = false;
 		flags.MAG_HOLD  	 = false;
 		receiver_aux.aux4	 = 2;
 	}
 
 	// (aux > 1800) && (aux < 2050)
 	else if((getRCDataRaw(AUX4) > (SWITCH_MAX_POSITION - SWITCH_POSITION_MARGIN)) && (getRCDataRaw(AUX4) < (SWITCH_MAX_POSITION + SWITCH_POSITION_MARGIN))){
-		flags.FAILSAFE  = false;
 		flags.MAG_HOLD  	 = false;
 		receiver_aux.aux4	 = 3;
 	}
@@ -657,33 +713,52 @@ void CK_RECEIVER_CheckAndSetFlags(void){
         flags.MAG_HOLD         = true;
     }
 
+	// Failsafe is handled in CK_RECEIVER_UpdateFailsafe(), which also runs when no frame arrives.
+}
 
-	// ***************FAILSAFE MODE OVERWRTIE***************
+/*
+ * Link loss handling. Called every loop from CK_RECEIVER_Update().
+ * No autonomy: the old code forced ARMED + ANGLE + LANDING here (and could even arm a disarmed
+ * aircraft); without a barometer that meant flying on with the last sticks. Now the response is DROP.
+ */
+void CK_RECEIVER_UpdateFailsafe(uint32_t now_ms){
 
-	if(flags.FAILSAFE && flags.IS_FIRST_ARMING_DONE){
+	const bool frames_lost = (rx_last_frame_ms != 0) && ((now_ms - rx_last_frame_ms) > RX_SIGNAL_TIMEOUT_MS);
+	const bool lost = frames_lost || rx_receiver_failsafe || rx_link_degraded;
 
-	    // If failsafe the mode will be determined here so previous flags will be ignored */
-
-		if(overwrite_flags.FORCE_TO_DISARM){
-			flags.ARMED = false;
+	if(lost){
+		if(rx_lost_since_ms == 0){
+			rx_lost_since_ms = now_ms ? now_ms : 1u;
 		}
-		else{
-			flags.ARMED = true;     // Drone should be armed until landing
-		}
-
-		flags.ACRO_MODE 		= false;
-		flags.HORIZON_MODE 		= false;
-		flags.ANGLE_MODE 	    = true;
-
-		flags.BUZZER 		    = true;
-
-		flags.GPS_RESCUE 	    = false;    // later activate this when gps rescue is tested and works.
-		flags.MAG_HOLD   	    = false;
-
-		flags.ALTITUDE_HOLD    	= false;
-		flags.LANDING		    = true;     // LANDING
-
 	}
+	else{
+		rx_lost_since_ms = 0;
+	}
+
+	flags.FAILSAFE = lost;
+
+	if(!lost || !flags.IS_FIRST_ARMING_DONE){
+		return;
+	}
+
+	if(rx_link_degraded || (now_ms - rx_lost_since_ms) >= RX_FAILSAFE_DELAY_MS){
+		flags.BUZZER = true;    // help to find the aircraft
+		if(flags.ARMED){
+			rx_failsafe_drops++;
+		}
+		flags.ARMED = false;
+		overwrite_flags.FORCE_TO_DISARM = true;    // released when the arm switch is turned off
+	}
+}
+
+CK_ARM_BLOCK_e CK_RECEIVER_GetArmBlockReason(void){
+
+	return arm_block_reason;
+}
+
+uint32_t CK_RECEIVER_GetFailsafeDrops(void){
+
+	return rx_failsafe_drops;
 }
 
 uint8_t CK_RECEIVER_isArmed(void){

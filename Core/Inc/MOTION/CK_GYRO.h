@@ -10,6 +10,20 @@
 
 #define GYRO_READ_ARRAY_SIZE	32
 
+/*
+ * H7 D-cache and DMA: a cache line is 32 bytes. SCB_InvalidateDCache_by_Addr() rounds the address
+ * down to 32 and discards the WHOLE line. With an unaligned rxArray inside the sensor struct, the old
+ * "size + 32" invalidate touched up to 3 lines: neighbouring variables written by the CPU but not yet
+ * written back to RAM (SPI handle, CS pin ...) could silently return to an old value.
+ * rxArray aligned to 32 with exactly 32 bytes sits in one line and the invalidate touches nothing else.
+ * F4 has no cache: the macro is empty and the F4 code is unchanged.
+ */
+#if USE_H7 == 1
+#define GYRO_DMA_ALIGNED		__attribute__((aligned(32)))
+#else
+#define GYRO_DMA_ALIGNED
+#endif
+
 #define LPF_MAX_HZ 1000 // so little filtering above 1000hz that if the user wants less delay, they must disable the filter
 #define DYN_LPF_MAX_HZ 1000
 

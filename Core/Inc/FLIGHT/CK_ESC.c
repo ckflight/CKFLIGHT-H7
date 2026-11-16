@@ -5,11 +5,15 @@
 #include "FLIGHT/CK_DSHOT.h"
 #include "FLIGHT/CK_RECEIVER.h"
 
-
 CK_ESC_Mode esc_mode;
 
 bool is_motor_test_mode = false;
 int esc_test_motor_num = 0;
+
+
+/* ============================================================
+ * ESC Initialization
+ * ============================================================ */
 
 void CK_ESC_Init(CK_ESC_Mode md, targetFreq_e main_time){
 
@@ -21,130 +25,150 @@ void CK_ESC_Init(CK_ESC_Mode md, targetFreq_e main_time){
 
 	if(esc_mode == PWM_MODE){
 		CK_PWM_Init(PWM_ONESHOT42);
-
 	}
 	else if(esc_mode == DSHOT_MODE){
-		CK_DSHOT_Init(INLINE_MODE, main_time);
+		CK_DSHOT_Init(SYNC_MODE, main_time);
+	}
+}
 
+
+/* ============================================================
+ * ESC Motor Output
+ * ============================================================ */
+
+static void CK_ESC_WriteOutputs(const int motor[4]){
+
+	if(esc_mode == PWM_MODE){
+		CK_PWM_SetMotor1(motor[0]);
+		CK_PWM_SetMotor2(motor[1]);
+		CK_PWM_SetMotor3(motor[2]);
+		CK_PWM_SetMotor4(motor[3]);
+	}
+	else if(esc_mode == DSHOT_MODE){
+		CK_DSHOT_SetMotor1(motor[0]);
+		CK_DSHOT_SetMotor2(motor[1]);
+		CK_DSHOT_SetMotor3(motor[2]);
+		CK_DSHOT_SetMotor4(motor[3]);
+
+		CK_DSHOT_Update();      // all four frames together, right after the mixer (Betaflight updateComplete)
 	}
 }
 
 void CK_ESC_SetMotor(int num1, int num2, int num3, int num4){
 
-	if(esc_mode == PWM_MODE){
-		CK_PWM_SetMotor1(num1);
-		CK_PWM_SetMotor2(num2);
-		CK_PWM_SetMotor3(num3);
-		CK_PWM_SetMotor4(num4);
+	int motor[4] = { num1, num2, num3, num4 };
 
+	/*
+	 * ESC reverse mount: if the ESC is turned 180 degrees on the frame,
+	 * motor 1 <-> motor 4 and motor 2 <-> motor 3.
+	 */
+	if(MIXER_ESC_REVERSED){
+		int temp;
+
+		temp = motor[0]; motor[0] = motor[3]; motor[3] = temp;
+		temp = motor[1]; motor[1] = motor[2]; motor[2] = temp;
 	}
-	else if(esc_mode == DSHOT_MODE){
 
-		// MOTOR TEST MODE
-		if(is_motor_test_mode){
+	/*
+	 * Motor test mode (DShot): only the selected motor runs, every other output is STOP.
+	 * esc_test_motor_num is the logical motor number, converted to the physical output here.
+	 */
+	if(is_motor_test_mode && esc_mode == DSHOT_MODE){
 
-			// ESC REVERSE MOUNT
-			// if esc is reversed onboard 180 degrees then 1 4 is swapped and 2 3 is swapped
-			if(MIXER_ESC_REVERSED){
-				if(esc_test_motor_num == 1){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(num1);
-				}
-				else if(esc_test_motor_num == 2){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(num2);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-				else if(esc_test_motor_num == 3){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(num3);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-				else if(esc_test_motor_num == 4){
-					CK_DSHOT_SetMotor1(num4);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-			}
+		int selected = esc_test_motor_num;
 
-			// ESC NORMAL MOUNT
-			else{
-				if(esc_test_motor_num == 1){
-					CK_DSHOT_SetMotor1(num1);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-				else if(esc_test_motor_num == 2){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(num2);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-				else if(esc_test_motor_num == 3){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(num3);
-					CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-				}
-				else if(esc_test_motor_num == 4){
-					CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-					CK_DSHOT_SetMotor4(num4);
-				}
-			}
-
+		if(MIXER_ESC_REVERSED && selected >= 1 && selected <= 4){
+			selected = 5 - selected;
 		}
 
-		// NORMAL FLIGHT MODE
-		else{
-
-			// ESC REVERSE MOUNT
-			// if esc is reversed onboard 180 degrees then 1 4 is swapped and 2 3 is swapped
-			if(MIXER_ESC_REVERSED){
-				CK_DSHOT_SetMotor1(num4);
-				CK_DSHOT_SetMotor2(num3);
-				CK_DSHOT_SetMotor3(num2);
-				CK_DSHOT_SetMotor4(num1);
+		for(int i = 0; i < 4; i++){
+			if((i + 1) != selected){
+				motor[i] = DSHOT_COMMAND_MOTOR_STOP;
 			}
-
-			// ESC NORMAL MOUNT
-			else{
-				CK_DSHOT_SetMotor1(num1);
-				CK_DSHOT_SetMotor2(num2);
-				CK_DSHOT_SetMotor3(num3);
-				CK_DSHOT_SetMotor4(num4);
-			}
-
 		}
-
 	}
+
+	CK_ESC_WriteOutputs(motor);
 }
+
+
+/* ============================================================
+ * Stop All Motors (normal context)
+ * ============================================================ */
 
 void CK_ESC_StopMotors(void){
 
 	if(esc_mode == PWM_MODE){
+		const int motor[4] = { PWM_MIN_RANGE, PWM_MIN_RANGE, PWM_MIN_RANGE, PWM_MIN_RANGE };
+		CK_ESC_WriteOutputs(motor);
+	}
+	else if(esc_mode == DSHOT_MODE){
+		const int motor[4] = { DSHOT_COMMAND_MOTOR_STOP, DSHOT_COMMAND_MOTOR_STOP,
+		                       DSHOT_COMMAND_MOTOR_STOP, DSHOT_COMMAND_MOTOR_STOP };
+		CK_ESC_WriteOutputs(motor);
+	}
+}
+
+
+/* ============================================================
+ * Fault: Stop All Motors (no interrupts needed)
+ * ============================================================ */
+
+void CK_ESC_EmergencyStop(void){
+
+	if(esc_mode == PWM_MODE){
+		// PWM is generated by the timer hardware: writing the disarm width is enough
 		CK_PWM_SetMotor1(PWM_MIN_RANGE);
 		CK_PWM_SetMotor2(PWM_MIN_RANGE);
 		CK_PWM_SetMotor3(PWM_MIN_RANGE);
 		CK_PWM_SetMotor4(PWM_MIN_RANGE);
-
 	}
 	else if(esc_mode == DSHOT_MODE){
-		CK_DSHOT_SetMotor1(DSHOT_COMMAND_MOTOR_STOP);
-		CK_DSHOT_SetMotor2(DSHOT_COMMAND_MOTOR_STOP);
-		CK_DSHOT_SetMotor3(DSHOT_COMMAND_MOTOR_STOP);
-		CK_DSHOT_SetMotor4(DSHOT_COMMAND_MOTOR_STOP);
-
+		CK_DSHOT_EmergencyStop();
 	}
-
 }
+
+
+/* ============================================================
+ * Stop motors before reset (Betaflight: motorShutdown() -> systemReset())
+ * On reset the pins float; an ESC could keep the last throttle until its own signal-loss timeout.
+ * ============================================================ */
+
+void CK_ESC_SystemReset(void){
+
+	CK_ESC_EmergencyStop();
+	NVIC_SystemReset();
+}
+
+
+/* ============================================================
+ * Motor output guard (DShot): main loop stalled -> motors were stopped
+ * ============================================================ */
+
+bool CK_ESC_OutputGuardTripped(void){
+
+	if(esc_mode == DSHOT_MODE){
+		return CK_DSHOT_GuardTripped();
+	}
+	return false;
+}
+
+void CK_ESC_GetOutputStats(uint32_t *guard_trips, uint32_t *busy_skips){
+
+	if(esc_mode == DSHOT_MODE){
+		*guard_trips = ck_dshot_guard_trips;
+		*busy_skips  = ck_dshot_busy_skips;
+	}
+	else{
+		*guard_trips = 0;
+		*busy_skips  = 0;
+	}
+}
+
+
+/* ============================================================
+ * Motor Test Mode
+ * ============================================================ */
 
 void CK_ESC_MOTOR_TEST_MODE_Enable(int num){
 
@@ -156,5 +180,6 @@ void CK_ESC_MOTOR_TEST_MODE_Enable(int num){
 void CK_ESC_MOTOR_TEST_MODE_Disable(void){
 
 	is_motor_test_mode = false;
-}
 
+	esc_test_motor_num = 0;
+}

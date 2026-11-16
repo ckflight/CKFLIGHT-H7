@@ -4,6 +4,7 @@
 #include "FLIGHT/pid_init.h"
 #include "FLIGHT/CK_RECEIVER.h"
 #include "FLIGHT/CK_RC.h"
+#include "FLIGHT/CK_ESC.h"
 
 #include "FLASH/CK_FLASH.h"
 
@@ -124,7 +125,7 @@ void CK_ADJUSTMENT_Update(void){
 
 				CK_BUZZER_Tone4();
 
-				NVIC_SystemReset();
+				CK_ESC_SystemReset();   // STOP to the motors first, then reset
 			}
 
 		}
@@ -227,20 +228,10 @@ void CK_ADJUSTMENT_SetOtherParameters(void){
 		pidUpdateTPAParameters(2, tpa_rate_adjustment);
 	}
 
-	//
+	// D-min adjustment: not implemented in the light firmware.
+	// (The old placeholder read PID_PARAMETERS[3][...], one row past the end of the table.)
 	else if(receiver_aux.aux7 == 2){
 
-		current_parameter = PID_PARAMETERS[3][receiver_aux.aux8 - 1];
-
-		//int n2 = receiver_aux.aux8 - 1;
-
-		// Add adjustment number to current
-		//current_parameter += CK_ADJUSTMENT_GetParameters(1);
-
-		// This is needed for saving parameters to eeprom
-		//PID_PARAMETERS[3][n2] = current_parameter;
-
-		//CK_PID_UpdateParameter(current_parameter, AXIS_DMIN, n2);
 	}
 
 	// ANTIGRAVITY

@@ -53,7 +53,11 @@ typedef struct imuConfig_s {
 typedef struct imuRuntimeConfig_s {
     float imuDcmKi;
     float imuDcmKp;
+    float imuDcmILimit;     // rad/s, gyro bias estimate limit (INAV dcm_i_limit)
 } imuRuntimeConfig_t;
+
+extern imuConfig_t imuConfig;
+extern syncTimer_t imu_sync;
 
 void imuConfigure(uint16_t throttle_correction_angle, uint8_t throttle_correction_value);
 
@@ -63,6 +67,8 @@ void getQuaternion(quaternion_t * q);
 void imuUpdateAttitude(timeUs_t currentTimeUs);
 
 void imuInit(uint32_t imuT, uint32_t mainT);
+float imuGetAccWeight(void);
+float imuGetGyroBiasCorrection(int axis);
 
 #ifdef SIMULATOR_BUILD
 void imuSetAttitudeRPY(float roll, float pitch, float yaw);  // in deg

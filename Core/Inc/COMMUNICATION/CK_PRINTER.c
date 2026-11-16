@@ -14,9 +14,11 @@
 #include "FLIGHT/CK_RC.h"
 #include "FLIGHT/CK_MIXER.h"
 #include "FLIGHT/CK_SBUS.h"
+#include "FLIGHT/CK_CRSF.h"
 #include "FLIGHT/CK_ALTITUDE.h"
 #include "FLIGHT/CK_GPS.h"
 #include "FLIGHT/CK_NAVIGATION.h"
+#include "FLIGHT/CK_NAV_ESTIMATOR.h"
 #include "FLIGHT/CK_PID.h"
 #include "FLIGHT/CK_ESC.h"
 #include "FLIGHT/flight_monitor.h"
@@ -39,6 +41,30 @@ int loopTime;
 char print_cmd = '.';// Default value to not run all if else statements
 
 bool is_printer_motor_mode_enabled = false;
+
+/*
+ * Commands that block the flight loop (calibrations, BLHeli passthrough, OSD font upload, long prints),
+ * reset the MCU or change the motor output are refused while armed. Only the read-only live prints
+ * stay available in flight.
+ */
+static bool CK_PRINTER_IsUnsafeWhileArmed(char cmd){
+
+	if(is_printer_motor_mode_enabled){
+		return (cmd >= '1' && cmd <= '4');      // motor selection only while disarmed ('E' always allowed)
+	}
+
+	switch(cmd){
+		case 'a': case 'm': case 'z':           // calibrations (block the loop)
+		case 'p':                               // BLHeli passthrough (stops the flight loop)
+		case 'o': case 'O':                     // OSD font upload / font page
+		case 'G': case 'h':                     // GPS averaging, parameter dump with delays
+		case 'r':                               // reset
+		case 'M':                               // motor test mode
+			return true;
+		default:
+			return false;
+	}
+}
 
 void CK_PRINTER_Init(uint32_t mainT){
 
@@ -93,7 +119,14 @@ void CK_PRINTER_Update(CK_PRINT_TIMEx print_freq, uint32_t compT){
 	if(print_cmd == '.'){
 		return;
 	}
-	else if(print_cmd == '1' && is_printer_motor_mode_enabled == false){
+
+	if(flags.ARMED && CK_PRINTER_IsUnsafeWhileArmed(print_cmd)){
+		CK_PRINTER_PrintlnString("Command refused while armed. Disarm first.");
+		print_cmd = '.';
+		return;
+	}
+
+	if(print_cmd == '1' && is_printer_motor_mode_enabled == false){
 	    CK_PRINTER_PrintGyroADCRaw(print_freq, compT);
 	}
 	else if(print_cmd == '2' && is_printer_motor_mode_enabled == false){
@@ -140,6 +173,9 @@ void CK_PRINTER_Update(CK_PRINT_TIMEx print_freq, uint32_t compT){
 	}
 	else if(print_cmd == 'l' && is_printer_motor_mode_enabled == false){
 	    CK_PRINTER_PrintLoopTime(compT);
+	}
+	else if(print_cmd == 'x' && is_printer_motor_mode_enabled == false){
+	    CK_PRINTER_PrintHealth(EVERY_500MS);
 	}
 	else if(print_cmd == 'd' && is_printer_motor_mode_enabled == false){
 	    CK_PRINTER_PrintDebugTimes();
@@ -207,7 +243,7 @@ void CK_PRINTER_Update(CK_PRINT_TIMEx print_freq, uint32_t compT){
 		print_cmd = '.';// To not enter here again unless typed
 	}
 	else if(print_cmd == 'r' && is_printer_motor_mode_enabled == false){//restart the system
-		NVIC_SystemReset();
+		CK_ESC_SystemReset();   // STOP to the motors first, then reset
 	}
 	else if(print_cmd == 'i' && is_printer_motor_mode_enabled == false){
 		CK_PRINTER_PrintADC(EVERY_250MS, compT);
@@ -464,22 +500,28 @@ void CK_PRINTER_PrintNavigation(CK_PRINT_TIMEx time, uint32_t t){
 
 		printerCounter = 0;
 
-		CK_USBD_StringPrint("GPSHeadingSetpoint: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetGPSHeadingSetpoint());
+		float target[3];
+		CK_NAVIGATION_GetTarget(target);
 
-		CK_USBD_StringPrint(" GPSHeadingError: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetGPSHeadingError());
+		CK_USBD_StringPrint("Nav: ");CK_USBD_StringPrint(CK_NAVIGATION_StateName(CK_NAVIGATION_GetState()));
 
-		CK_USBD_StringPrint(" GPSHeadingCorrection: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetGPSHeadingCorrection());
+		CK_USBD_StringPrint("  cap: ");CK_USBD_IntPrint(CK_NAVIGATION_GetCapability());
 
-		CK_USBD_StringPrint(" GPSYawCommand: ");CK_USBD_IntPrintln(getRCCommand(YAW));
+		CK_USBD_StringPrint("  N: ");CK_USBD_FloatPrint(nav_est.pos[NAV_N]);
 
+		CK_USBD_StringPrint("  E: ");CK_USBD_FloatPrint(nav_est.pos[NAV_E]);
 
-		CK_USBD_StringPrint(" MAGHeadingSetpoint: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetMAGHeadingSetpoint());
+		CK_USBD_StringPrint("  U: ");CK_USBD_FloatPrint(nav_est.pos[NAV_U]);
 
-		CK_USBD_StringPrint(" MAGHeadingError: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetMAGHeadingError());
+		CK_USBD_StringPrint("  vU: ");CK_USBD_FloatPrint(nav_est.vel[NAV_U]);
 
-		CK_USBD_StringPrint(" MAGHeadingCorrection: ");CK_USBD_FloatPrint(CK_NAVIGATION_GetMAGHeadingCorrection());
+		CK_USBD_StringPrint("  Hdg: ");CK_USBD_FloatPrint(nav_est.heading_deg);
 
-		CK_USBD_StringPrint(" MAGYawCommand: ");CK_USBD_IntPrintln(getRCCommand(YAW));
+		CK_USBD_StringPrint("  tgtU: ");CK_USBD_FloatPrint(target[2]);
+
+		CK_USBD_StringPrint("  xy: ");CK_USBD_IntPrint(nav_est.xy_valid);
+		CK_USBD_StringPrint(" z: ");CK_USBD_IntPrint(nav_est.z_valid);
+		CK_USBD_StringPrint(" hdg: ");CK_USBD_IntPrintln(nav_est.heading_valid);
 
 		CK_USBD_StringPrint("   T:  ");CK_USBD_IntPrintln(t);
 
@@ -961,6 +1003,114 @@ void CK_PRINTER_PrintIMUAngles(CK_PRINT_TIMEx time, uint32_t t){
 	}
 }
 
+/*
+ * 'x': system health, one line every 500 ms.
+ *   LOOP max us   : longest loop since the previous line, against the target period
+ *   overrun       : loops longer than the target (per second and since power-up)
+ *   CRSF          : valid frames per second, CRC errors, UART overruns (bytes lost)
+ *   slow          : slowest section of the worst overrun (only shown when it happened)
+ *   motor guard   : output guard trips / skipped DShot frames (only shown when it happened)
+ *   arm / rx drop : why arming was refused, failsafe drops (only shown when it happened)
+ * Format "label: number | label: number" so a serial plotter can split it into series.
+ */
+extern volatile uint32_t ck_loop_busy_max_us;
+extern volatile uint32_t ck_loop_overruns;
+extern volatile uint32_t ck_loop_clock_glitches;
+extern volatile uint8_t  ck_loop_slow_sec;
+extern volatile uint32_t ck_loop_slow_us;
+extern const uint8_t     ck_loop_sec_count;
+extern const char *const ck_loop_sec_names[];
+
+void CK_PRINTER_PrintHealth(CK_PRINT_TIMEx time){
+
+	printerCounter++;
+
+	if(printerCounter < (time/loopTime)){
+		return;
+	}
+
+	printerCounter = 0;
+
+	uint32_t ok = 0, crc = 0, ovr = 0;
+#if CRSF_
+	CK_CRSF_GetStats(&ok, &crc, &ovr);
+#endif
+	const uint32_t overruns = ck_loop_overruns;
+	const uint32_t glitches = ck_loop_clock_glitches;
+	const uint32_t busy_max = ck_loop_busy_max_us;
+	ck_loop_busy_max_us = 0;
+
+	// Rates per second = difference between two lines / real elapsed time (the first line prints 0)
+	static uint32_t prev_us = 0, prev_ok = 0, prev_crc = 0, prev_overruns = 0;
+	const uint32_t now_us = CK_TIME_GetMicroSec();
+	const uint32_t dt_us = now_us - prev_us;
+	float per_s = 0.0f;
+	if(prev_us != 0 && dt_us != 0 && dt_us < 0x80000000u){
+		per_s = 1000000.0f / (float)dt_us;
+	}
+	const uint32_t crsf_hz       = (uint32_t)((float)(ok - prev_ok) * per_s + 0.5f);
+	const uint32_t crc_per_s     = (uint32_t)((float)(crc - prev_crc) * per_s + 0.5f);
+	const uint32_t overrun_per_s = (uint32_t)((float)(overruns - prev_overruns) * per_s + 0.5f);
+	prev_us = now_us; prev_ok = ok; prev_crc = crc; prev_overruns = overruns;
+
+	CK_USBD_StringPrint("LOOP max us: ");     CK_USBD_IntPrint(busy_max);
+	CK_USBD_StringPrint(" | target us: ");    CK_USBD_IntPrint(TARGET_MAIN_TIME_US);
+	CK_USBD_StringPrint(" | overrun/s: ");    CK_USBD_IntPrint(overrun_per_s);
+	CK_USBD_StringPrint(" | overrun total: ");CK_USBD_IntPrint(overruns);
+	CK_USBD_StringPrint(" | CRSF rate Hz: "); CK_USBD_IntPrint(crsf_hz);
+	CK_USBD_StringPrint(" | CRSF ok total: ");CK_USBD_IntPrint(ok);
+	CK_USBD_StringPrint(" | CRC err/s: ");    CK_USBD_IntPrint(crc_per_s);
+	CK_USBD_StringPrint(" | CRC err total: ");CK_USBD_IntPrint(crc);
+
+	{
+		const uint8_t  ss = ck_loop_slow_sec;
+		const uint32_t su = ck_loop_slow_us;
+		ck_loop_slow_sec = 0xFF;
+		ck_loop_slow_us  = 0;
+		if(ss < ck_loop_sec_count){
+			CK_USBD_StringPrint(" | slow: ");
+			CK_USBD_StringPrint(ck_loop_sec_names[ss]);
+			CK_USBD_StringPrint(" ");
+			CK_USBD_IntPrint(su);
+		}
+	}
+
+	{
+		uint32_t g_trips, g_skips;
+		CK_ESC_GetOutputStats(&g_trips, &g_skips);
+		if(g_trips != 0 || g_skips != 0){
+			CK_USBD_StringPrint(" | motor guard trip: ");CK_USBD_IntPrint(g_trips);
+			CK_USBD_StringPrint(" skip: ");CK_USBD_IntPrint(g_skips);
+		}
+	}
+
+	{
+		const CK_ARM_BLOCK_e block = CK_RECEIVER_GetArmBlockReason();
+		if(block == CK_ARM_BLOCK_SWITCH){
+			CK_USBD_StringPrint(" | arm: cycle switch");
+		}
+		else if(block == CK_ARM_BLOCK_THROTTLE){
+			CK_USBD_StringPrint(" | arm: throttle high");
+		}
+
+		const uint32_t drops = CK_RECEIVER_GetFailsafeDrops();
+		if(drops != 0){
+			CK_USBD_StringPrint(" | rx failsafe drop: ");CK_USBD_IntPrint(drops);
+		}
+	}
+
+	CK_USBD_StringPrint(" | UART ovr: ");
+	if(glitches == 0){
+		CK_USBD_IntPrintln(ovr);
+	}
+	else{
+		CK_USBD_IntPrint(ovr);
+		CK_USBD_StringPrint(" | clock glitch: ");CK_USBD_IntPrintln(glitches);
+	}
+
+	CK_USBD_Transmit();
+}
+
 void CK_PRINTER_PrintLoopTime(uint32_t time){
 
 	if(time <= TARGET_MAIN_TIME_US){
@@ -986,8 +1136,7 @@ void CK_PRINTER_PrintDebugTimes(void){
     CK_USBD_StringPrint(", BAR: ");CK_USBD_IntPrint(barometer_debug.update_time);
     CK_USBD_StringPrint(", GPS: ");CK_USBD_IntPrint(gps_debug.update_time);
     CK_USBD_StringPrint(", IMU: ");CK_USBD_IntPrint(imu_debug.update_time);
-    CK_USBD_StringPrint(", NAV1: ");CK_USBD_IntPrint(navigation_gps_rescue_debug.update_time);
-    CK_USBD_StringPrint(", NAV2: ");CK_USBD_IntPrint(navigation_gps_poshold_debug.update_time);
+    CK_USBD_StringPrint(", NAV: ");CK_USBD_IntPrint(navigation_debug.update_time);
     CK_USBD_StringPrint(", ALT: ");CK_USBD_IntPrint(altitude_debug.update_time);
     CK_USBD_StringPrint(", PID: ");CK_USBD_IntPrint(pid_debug.update_time);
     CK_USBD_StringPrint(", MIXER: ");CK_USBD_IntPrint(mixer_debug.update_time);

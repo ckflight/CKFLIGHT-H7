@@ -91,7 +91,8 @@ int CK_USBD_WriteRxBuffer(uint8_t* Buf, uint32_t* Len){
 
 int CK_USBD_WriteTxBuffer(uint8_t data){
 
-	if(copy_length <= BUFFER_SIZE){
+	// '<' (was '<='): with copy_length == BUFFER_SIZE it wrote copy_buffer[BUFFER_SIZE], one byte past the end
+	if(copy_length < BUFFER_SIZE){
 		copy_buffer[copy_length++] = data;
 		return 1; // OK
 	}

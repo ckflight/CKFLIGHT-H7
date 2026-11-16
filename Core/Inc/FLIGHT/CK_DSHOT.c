@@ -5,6 +5,7 @@
 #include "DRIVERS/CK_GPIO.h"
 #include "DRIVERS/CK_SYSTEM.h"
 
+
 TIM_HandleTypeDef htim_dshot1;
 TIM_HandleTypeDef htim_dshot2;
 TIM_HandleTypeDef htim_dshot3;
@@ -54,10 +55,10 @@ DMA_HandleTypeDef hdma_dshot4;
 #define DMA_CLEAR_FLAG_TCIF6_HISR_OFFSET		21
 #define DMA_CLEAR_FLAG_TCIF7_HISR_OFFSET		27
 
-uint32_t dma_buffer_dshot1[DSHOT_DCACHE_SIZE];
-uint32_t dma_buffer_dshot2[DSHOT_DCACHE_SIZE];
-uint32_t dma_buffer_dshot3[DSHOT_DCACHE_SIZE];
-uint32_t dma_buffer_dshot4[DSHOT_DCACHE_SIZE];
+uint32_t dma_buffer_dshot1[DSHOT_DCACHE_SIZE] __attribute__((aligned(32))); // H7: whole cache lines, clean never touches neighbours
+uint32_t dma_buffer_dshot2[DSHOT_DCACHE_SIZE] __attribute__((aligned(32))); // H7: whole cache lines, clean never touches neighbours
+uint32_t dma_buffer_dshot3[DSHOT_DCACHE_SIZE] __attribute__((aligned(32))); // H7: whole cache lines, clean never touches neighbours
+uint32_t dma_buffer_dshot4[DSHOT_DCACHE_SIZE] __attribute__((aligned(32))); // H7: whole cache lines, clean never touches neighbours
 
 uint8_t motor1_clear_flag;
 uint8_t motor2_clear_flag;
@@ -77,6 +78,38 @@ uint32_t motor4_timer_req_flag;
 DSHOT_Mode_t dshot_mode_;
 
 uint16_t digitalIdleOffsetValue = 550;
+
+/* ---------------- Synchronous output + guard state ---------------- */
+
+#ifndef DSHOT_GUARD_PERIOD_US
+#define DSHOT_GUARD_PERIOD_US       TARGET_1KHZ_US  // guard interrupt rate (it used to send motor frames at loop rate)
+#endif
+
+#ifndef DSHOT_GUARD_TIMEOUT_US
+/*
+ * 250 ms: margin against false trips (a trip in the air means the motors are cut). A real stall is
+ * caught after Bluejay (~160 ms) would already stop by itself and before AM32 (500 ms), so stopping
+ * no longer depends on the ESC firmware settings.
+ */
+#define DSHOT_GUARD_TIMEOUT_US      250000U
+#endif
+
+#define DSHOT_GUARD_TIMEOUT_TICKS   (DSHOT_GUARD_TIMEOUT_US / DSHOT_GUARD_PERIOD_US)
+
+#define DSHOT_ESTOP_FRAMES          10U             // fault: 10 STOP frames
+#define DSHOT_ESTOP_GAP_BITS        600U            // ~1 ms between frames (DShot600 bit time is 1.67 us)
+
+// DShot STOP command (value 0, telemetry 0, CRC 0)
+#define DSHOT_STOP_PACKET           0x0000U
+
+static volatile uint16_t dshot_packet[4];           // prepared by SetMotor1..4, sent by CK_DSHOT_Update
+static volatile uint16_t dshot_guard_ticks;         // cleared by Update, counted by the guard interrupt (no SysTick needed)
+static volatile bool     dshot_loop_running;        // first Update arrived: the output now belongs to the main loop
+static volatile bool     dshot_guard_tripped;       // latch: STOP until the mixer outputs DISARM (all motors STOP)
+static volatile bool     dshot_hw_ready;            // timers and DMA are configured (needed by EmergencyStop)
+
+volatile uint32_t ck_dshot_guard_trips = 0;
+volatile uint32_t ck_dshot_busy_skips  = 0;
 
 void CK_DSHOT_Init(DSHOT_Mode_t mode, targetFreq_e target_period){
 
@@ -125,11 +158,15 @@ void CK_DSHOT_Init(DSHOT_Mode_t mode, targetFreq_e target_period){
 		CK_TIME_DelayMicroSec(target_period);
 	}
 
-	if(mode == INLINE_MODE){
-
-		CK_DSHOT_InitInterrupt(target_period);
-
+	for(uint8_t i = 0; i < 4; i++){
+		dshot_packet[i] = DSHOT_STOP_PACKET;
 	}
+	dshot_guard_ticks   = 0;
+	dshot_loop_running  = false;   // until the flight loop starts the guard sends STOP keep-alive frames
+	dshot_guard_tripped = false;
+	dshot_hw_ready      = true;
+
+	CK_DSHOT_InitInterrupt(DSHOT_GUARD_PERIOD_US);
 
 }
 
@@ -147,42 +184,26 @@ void CK_DSHOT_InitEndPoints(float outputLimit, float* outputLow, float* outputHi
 
 void CK_DSHOT_SetMotor1(int num){
 
-	uint16_t packet = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
-	CK_DSHOT_LoadDmaBufferDshot(dma_buffer_dshot1, 1, packet);
-
-	if(dshot_mode_ == BLOCKING_MODE){
-		CK_DSHOT_Start1(DSHOT_BUFFER_SIZE);
-	}
+	// Packet only: the DMA buffer is loaded in CK_DSHOT_Update while the DMA is idle (no half-written frame)
+	dshot_packet[0] = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
 }
 
 void CK_DSHOT_SetMotor2(int num){
 
-	uint16_t packet = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
-	CK_DSHOT_LoadDmaBufferDshot(dma_buffer_dshot2, 1, packet);
-
-	if(dshot_mode_ == BLOCKING_MODE){
-		CK_DSHOT_Start2(DSHOT_BUFFER_SIZE);
-	}
+	// Packet only: the DMA buffer is loaded in CK_DSHOT_Update while the DMA is idle (no half-written frame)
+	dshot_packet[1] = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
 }
 
 void CK_DSHOT_SetMotor3(int num){
 
-	uint16_t packet = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
-	CK_DSHOT_LoadDmaBufferDshot(dma_buffer_dshot3, 1, packet);
-
-	if(dshot_mode_ == BLOCKING_MODE){
-		CK_DSHOT_Start3(DSHOT_BUFFER_SIZE);
-	}
+	// Packet only: the DMA buffer is loaded in CK_DSHOT_Update while the DMA is idle (no half-written frame)
+	dshot_packet[2] = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
 }
 
 void CK_DSHOT_SetMotor4(int num){
 
-	uint16_t packet = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
-	CK_DSHOT_LoadDmaBufferDshot(dma_buffer_dshot4, 1, packet);
-
-	if(dshot_mode_ == BLOCKING_MODE){
-		CK_DSHOT_Start4(DSHOT_BUFFER_SIZE);
-	}
+	// Packet only: the DMA buffer is loaded in CK_DSHOT_Update while the DMA is idle (no half-written frame)
+	dshot_packet[3] = CK_DSHOT_PrepareDshotPacket((num & 0x7FF) , false);
 }
 
 uint16_t CK_DSHOT_PrepareDshotPacket(uint16_t value, bool requestTelemetry){
@@ -840,21 +861,21 @@ void CK_DSHOT_InitInterrupt(targetFreq_e target_period){
 
 	CK_SYSTEM_TIMER_ClockEnable(DSHOT_INTERRUPT_TIM);
 
-    uint32_t frequency = (1000000 / target_period);
+    /*
+     * 1 MHz counter, ARR = period in us. The old calculation ignored the prescaler: on H7 below 2 kHz
+     * ARR overflowed 16 bits (240000 for the 1 kHz guard). Now correct for every period and board.
+     */
+    uint32_t timer_clock = CK_SYSTEM_GetTIMERClock(DSHOT_INTERRUPT_TIM);
 
-	#if USE_H7 == 1
-    if(frequency <= 2000){
-		DSHOT_INTERRUPT_TIM->PSC = 1; 				// Main clock prescalar
-	}
-	else if(frequency > 2000){
-		DSHOT_INTERRUPT_TIM->PSC = 0; 				// Main clock prescalar
-	}
-	#endif
 	#if USE_F4 == 1
-    frequency /= 2;
-    DSHOT_INTERRUPT_TIM->PSC = 0; 				// Main clock prescalar
+    // F4: GetTIMERClock returns APB1 for TIM6/7, the counter runs at 2 x APB1
+    if(DSHOT_INTERRUPT_TIM == TIM6 || DSHOT_INTERRUPT_TIM == TIM7){
+    	timer_clock *= 2U;
+    }
 	#endif
-    DSHOT_INTERRUPT_TIM->ARR = (CK_SYSTEM_GetTIMERClock(DSHOT_INTERRUPT_TIM) / frequency ) - 1; // Freq. is fix for each ch on same timer
+
+    DSHOT_INTERRUPT_TIM->PSC = (timer_clock / 1000000U) - 1U;
+    DSHOT_INTERRUPT_TIM->ARR = (uint32_t)target_period - 1U;
 
     if(DSHOT_INTERRUPT_TIM == TIM6 || DSHOT_INTERRUPT_TIM == TIM7){
     	// Basic timer does not have channel
@@ -890,6 +911,8 @@ void CK_DSHOT_InitInterrupt(targetFreq_e target_period){
     DSHOT_INTERRUPT_TIM->DIER |= 1u << 0; 	// Update interrupt enable
     DSHOT_INTERRUPT_TIM->EGR |= 1u << 0; 	// Update generation enabled
 
+    // Priority set explicitly (it was never set before: reset value 0 = highest, shared with CRSF)
+    HAL_NVIC_SetPriority(DSHOT_INTERRUPT_IRQn, DSHOT_TIMER_PreemptPriority, 0);
     NVIC_EnableIRQ(DSHOT_INTERRUPT_IRQn);
 
     DSHOT_INTERRUPT_TIM->CR1 |= 1u << 0; // Counter enable
@@ -1096,23 +1119,6 @@ uint8_t CK_DSHOT_DMA_CheckTransferComplete(DMA_Stream_TypeDef* dma_stream, uint3
 
 
 
-void DSHOT_INTERRUPT_Handler(void){
-
-	#if SCOPE_CHECK_DSHOT_INTERRUPT == 1
-		CK_GPIO_TogglePin(SCOPE_CHECK_GPIO, SCOPE_CHECK_GPIO_PIN);
-	#endif
-
-	DSHOT_INTERRUPT_TIM->SR = 0;
-
-	// After esc is started dma buffers is loaded with 0 command data and it is
-	// sent to esc until mixer starts updating dma buffers
-	CK_DSHOT_Start1(DSHOT_BUFFER_SIZE);
-	CK_DSHOT_Start2(DSHOT_BUFFER_SIZE);
-	CK_DSHOT_Start3(DSHOT_BUFFER_SIZE);
-	CK_DSHOT_Start4(DSHOT_BUFFER_SIZE);
-}
-
-
 void DSHOT1_DMA_Handler(void){
 
 	static uint32_t status = 0;
@@ -1196,4 +1202,180 @@ void DSHOT4_DMA_Handler(void){
 
 	}
 
+}
+
+/* ============================================================
+ * SYNCHRONOUS OUTPUT + OUTPUT GUARD
+ *
+ * Betaflight: the mixer writes the values with motorWriteAll() and updateComplete() starts every
+ * DMA in the same PID loop; no separate timer repeats motor values. If the loop hangs no frame goes
+ * out and the ESC stops on signal loss. Same path here, plus the TIM7 guard:
+ *   - If the loop hangs (interrupts and SysTick included) the guard actively sends STOP after
+ *     250 ms, so stopping no longer depends on the ESC firmware signal-loss timeout.
+ *   - If the guard itself is blocked (higher priority interrupt or fault) no frame goes out anyway.
+ * ============================================================ */
+
+static uint32_t *const dshot_buffer[4] = {
+	dma_buffer_dshot1, dma_buffer_dshot2, dma_buffer_dshot3, dma_buffer_dshot4
+};
+
+static void (*const dshot_start[4])(int) = {
+	CK_DSHOT_Start1, CK_DSHOT_Start2, CK_DSHOT_Start3, CK_DSHOT_Start4
+};
+
+static TIM_TypeDef *const dshot_tim[4] = {
+	MOTOR1_TIM, MOTOR2_TIM, MOTOR3_TIM, MOTOR4_TIM
+};
+
+static const uint32_t dshot_tim_ch[4] = {
+	MOTOR1_TIM_CH, MOTOR2_TIM_CH, MOTOR3_TIM_CH, MOTOR4_TIM_CH
+};
+
+static DMA_Stream_TypeDef *const dshot_stream[4] = {
+	DSHOT1_DMA_Stream, DSHOT2_DMA_Stream, DSHOT3_DMA_Stream, DSHOT4_DMA_Stream
+};
+
+// Is the previous frame still on the wire (writing the buffer now would corrupt it)
+static inline bool CK_DSHOT_IsBusy(uint8_t i){
+
+	return (dshot_stream[i]->CR & DMA_SxCR_EN) != 0U;
+}
+
+static inline void CK_DSHOT_SendMotor(uint8_t i, uint16_t packet){
+
+	if(CK_DSHOT_IsBusy(i)){
+		ck_dshot_busy_skips++;      // should never count: a frame is ~33 us, the loop is >= 125 us
+		return;
+	}
+	CK_DSHOT_LoadDmaBufferDshot(dshot_buffer[i], 1, packet);
+	dshot_start[i](DSHOT_BUFFER_SIZE);
+}
+
+static void CK_DSHOT_SendStopAll(void){
+
+	for(uint8_t i = 0; i < 4; i++){
+		CK_DSHOT_SendMotor(i, DSHOT_STOP_PACKET);
+	}
+}
+
+void CK_DSHOT_Update(void){
+
+	// Heartbeat first: from now on the guard sees this loop as alive and never touches the buffers
+	dshot_guard_ticks  = 0;
+	dshot_loop_running = true;
+
+	uint16_t packet[4] = { dshot_packet[0], dshot_packet[1], dshot_packet[2], dshot_packet[3] };
+
+	if(dshot_guard_tripped){
+		// Latched: STOP until the mixer outputs DISARM (all four motors STOP). Re-arming then needs
+		// the arm switch to be cycled (CK_RECEIVER arm edge).
+		if(packet[0] == DSHOT_STOP_PACKET && packet[1] == DSHOT_STOP_PACKET &&
+		   packet[2] == DSHOT_STOP_PACKET && packet[3] == DSHOT_STOP_PACKET){
+			dshot_guard_tripped = false;
+		}
+		else{
+			packet[0] = packet[1] = packet[2] = packet[3] = DSHOT_STOP_PACKET;
+		}
+	}
+
+	for(uint8_t i = 0; i < 4; i++){
+		CK_DSHOT_SendMotor(i, packet[i]);
+	}
+}
+
+bool CK_DSHOT_GuardTripped(void){
+
+	return dshot_guard_tripped;
+}
+
+void DSHOT_INTERRUPT_Handler(void){
+
+	#if SCOPE_CHECK_DSHOT_INTERRUPT == 1
+		CK_GPIO_TogglePin(SCOPE_CHECK_GPIO, SCOPE_CHECK_GPIO_PIN);
+	#endif
+
+	DSHOT_INTERRUPT_TIM->SR = 0;
+
+	if(!dshot_loop_running){
+		// Init (sensors, WaitARM ...): the ESCs only ever receive STOP, never a motor value
+		CK_DSHOT_SendStopAll();
+		return;
+	}
+
+	if(dshot_guard_ticks < DSHOT_GUARD_TIMEOUT_TICKS){
+		dshot_guard_ticks++;        // loop is alive: send nothing, the output belongs to the main loop
+		return;
+	}
+
+	// The main loop sent no frame for DSHOT_GUARD_TIMEOUT_US: it is stalled.
+	// If the motors were spinning, latch (STOP until DISARM). A long pause while disarmed
+	// (all STOP, e.g. saving to flash) is harmless: only STOP is sent, no latch, no counter.
+	if(!dshot_guard_tripped &&
+	   (dshot_packet[0] != DSHOT_STOP_PACKET || dshot_packet[1] != DSHOT_STOP_PACKET ||
+	    dshot_packet[2] != DSHOT_STOP_PACKET || dshot_packet[3] != DSHOT_STOP_PACKET)){
+		dshot_guard_tripped = true;
+		ck_dshot_guard_trips++;
+	}
+	CK_DSHOT_SendStopAll();
+}
+
+
+/* ---------------- Fault: emergency stop without interrupts ---------------- */
+
+// Wait by counting update events of a motor timer (1 event = 1.67 us at DShot600).
+// SysTick does not run inside a fault, so the CK_TIME delays cannot be used.
+static void CK_DSHOT_WaitBitPeriods(uint32_t n){
+
+	TIM_TypeDef *tim = dshot_tim[0];
+
+	while(n--){
+		for(uint32_t t = 0; ((tim->SR & TIM_SR_UIF) == 0U) && (t < 4000U); t++){ }
+		tim->SR = ~TIM_SR_UIF;
+	}
+}
+
+// Stop the channel DMA and the timer request (even if the DMA complete interrupt cannot run)
+static void CK_DSHOT_AbortMotor(uint8_t i){
+
+	dshot_tim[i]->DIER &= ~CK_DSHOT_GetTimerRequest(dshot_tim_ch[i]);
+
+	DMA_Stream_TypeDef *stream = dshot_stream[i];
+
+	stream->CR &= ~DMA_SxCR_EN;
+	for(uint32_t t = 0; ((stream->CR & DMA_SxCR_EN) != 0U) && (t < 100000U); t++){ }
+}
+
+static void CK_DSHOT_HoldLineLow(uint8_t i){
+
+	*(volatile uint32_t *)dshot_stream[i]->PAR = 0;   // PAR = CCRx (F4: init, H7: HAL_TIM_PWM_Start_DMA)
+}
+
+/*
+ * Betaflight systemFaultAction() -> stopMotors(): write the disarm value, give the ESCs time to react,
+ * then loop forever. Before, the fault handlers only wrote the buffers and the frames were sent by the
+ * TIM7 interrupt, which cannot run inside a fault, so STOP never went out. Here 10 STOP frames are sent
+ * without interrupts, then the lines are held low.
+ */
+void CK_DSHOT_EmergencyStop(void){
+
+	if(!dshot_hw_ready){
+		return;     // fault before timer/DMA setup: the lines are already silent
+	}
+
+	dshot_guard_tripped = true;
+	DSHOT_INTERRUPT_TIM->DIER &= ~1u;   // guard interrupt off: must not interfere before a reset
+
+	for(uint32_t f = 0; f < DSHOT_ESTOP_FRAMES; f++){
+		for(uint8_t i = 0; i < 4; i++){
+			CK_DSHOT_AbortMotor(i);
+			CK_DSHOT_LoadDmaBufferDshot(dshot_buffer[i], 1, DSHOT_STOP_PACKET);
+			dshot_start[i](DSHOT_BUFFER_SIZE);
+		}
+		CK_DSHOT_WaitBitPeriods(DSHOT_ESTOP_GAP_BITS);
+	}
+
+	for(uint8_t i = 0; i < 4; i++){
+		CK_DSHOT_AbortMotor(i);
+		CK_DSHOT_HoldLineLow(i);
+	}
 }
