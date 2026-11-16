@@ -47,7 +47,11 @@ SPI_t spi_variables = {
 
 };
 
-#define SPI_TIMEOUT         500
+/*
+ * The timeout is counted in LOOP ITERATIONS, not time. It was measured at -O0; at -O2 the wait loop runs
+ * ~2x faster, so it was raised 4x (same as the F4 driver). It never expires in a normal transfer.
+ */
+#define SPI_TIMEOUT         2000
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
@@ -280,7 +284,7 @@ void CK_SPI_ChangeClock(SPI_TypeDef* SPI_, CK_SPIx_CR1_Fclk_Div clk){
 
 uint8_t CK_SPI_WriteRegister(uint8_t reg, uint8_t data, SPI_TypeDef* SPI_, GPIO_TypeDef* GPIOx_CS, uint16_t cs_pin){
 
-	CK_SPIx_LibraryType spi_type_;
+	CK_SPIx_LibraryType spi_type_ = CK_SPI_USE_HAL;  // defined value also for an unknown SPI
 	uint8_t rx_data = 0;
 
 	if(SPI_ == SPI1){
@@ -331,7 +335,7 @@ uint8_t CK_SPI_WriteRegister(uint8_t reg, uint8_t data, SPI_TypeDef* SPI_, GPIO_
 
 void CK_SPI_ReadRegisterMulti(uint8_t reg, SPI_TypeDef* SPI_, GPIO_TypeDef* GPIOx_CS, uint16_t cs_pin, uint8_t* dataIn, int count){
 
-	CK_SPIx_LibraryType spi_type_;
+	CK_SPIx_LibraryType spi_type_ = CK_SPI_USE_HAL;  // defined value also for an unknown SPI
 
 	if(SPI_ == SPI1){
 		spi_type_ = spi_variables.spi1_type;
@@ -457,7 +461,7 @@ void CK_SPI_ReadRegisterMulti(uint8_t reg, SPI_TypeDef* SPI_, GPIO_TypeDef* GPIO
 
 uint8_t CK_SPI_Transfer(SPI_TypeDef* SPI_, uint8_t data){
 
-	CK_SPIx_LibraryType spi_type_;
+	CK_SPIx_LibraryType spi_type_ = CK_SPI_USE_HAL;  // defined value also for an unknown SPI
 	uint8_t rx_data = 0;
 
 	if(SPI_ == SPI1){
@@ -649,7 +653,7 @@ void CK_SPI_TimeOutCounter(SPI_TypeDef* SPI_){
 
 uint32_t CK_SPI_GetTimeOut(SPI_TypeDef* SPI_){
 
-    uint32_t res;
+    uint32_t res = 0;  // unknown SPI: 0 (was undefined)
 
     if(SPI_ == SPI1){
         res = spi_variables.spi1_timeout;

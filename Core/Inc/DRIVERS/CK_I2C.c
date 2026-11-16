@@ -278,7 +278,7 @@ void CK_I2C_TimeOutCounter(I2C_TypeDef* I2Cn){
 
 uint32_t CK_I2C_GetTimeOut(I2C_TypeDef* I2Cn){
 
-    uint32_t res;
+    uint32_t res = 0;  // unknown I2C: 0 (was undefined)
 
     if(I2Cn == I2C1){
         res = i2c_variables.i2c1_timeout;
