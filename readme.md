@@ -19,7 +19,7 @@
 
 > [!NOTE]
 > **This repository is a light, sample version of CKFLIGHT.**
-> The STM32 firmware here is a lighter version of the full CKFLIGHT firmware, shared as an example. It keeps the racing character of CKFLIGHT: with proper tuning it flies at speeds above 200 km/h with excellent performance. **It is designed as an STM32CubeIDE project for educational and learning purposes, making it easy to debug.**
+> The STM32 firmware here is a lighter version of the full CKFLIGHT firmware, shared as an example. It keeps the racing character of CKFLIGHT: with proper tuning it flies at speeds above 200 km/h with excellent performance. **It is designed as a STM32CubeIDE project for educational and learning purposes, making it easy to debug.**
 >
 > It shares the core safety and flight path of the full firmware: synchronous DShot output with a 250 ms output guard and an interrupt-free emergency stop in every fault handler, edge-triggered arming with throttle check, a double-buffered CRSF receiver, and link-loss failsafe (drop after 1 s, or LQ ≤ 5 % for 1 s). It also includes switch-only navigation: altitude hold, position hold (needs a barometer and magnetometer), GPS rescue (return-to-home) and landing, built on an accelerometer + GPS (+ barometer) position estimator. Navigation never engages on its own; moving roll or pitch during return-to-home or landing hands control straight back to the pilot.
 >
